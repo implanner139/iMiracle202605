@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>互動體驗：舉手得勝的奇蹟</title>
+    <!-- 引入 TensorFlow.js 和 Pose Detection 模型 -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+
+    <style>
+        /* --- 古典主題配色變數 --- */
+        :root {
+            --parchment-bg: #e3cba8;
+            --parchment-light: #ebd5b3;
+            --parchment-dark: #cba77b;
+            --border-brown: #8b5a2b;
+            --text-main: #3e2723;
+            --text-light: #5d4037;
+            --accent-red: #991b1b;
+            --accent-green: #166534;
+            --wood-dark: #2d1e15;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            /* 全局背景：預設深色木紋/暗桌台質感 */
+            background: radial-gradient(circle at center, #2b2118, #0c0906);
+            color: var(--text-main);
+            font-family: 'BiauKai', 'DFKai-SB', 'Times New Roman', serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            overflow-x: hidden;
+            /* 強制顯示垂直捲軸，防止因捲軸忽隱忽現導致畫面寬度與攝像頭大小跳動 */
+            overflow-y: scroll; 
+            transition: background 1s ease-in-out;
+        }
+
+        /* --- 新增：山頂場景背景 --- */
+        body.mountain-mode {
+            background: 
+                linear-gradient(to top, #0c0804 0%, #1a120b 12%, transparent 35%),
+                radial-gradient(ellipse at 20% 80%, #2a1a10 0%, transparent 45%),
+                radial-gradient(ellipse at 80% 85%, #1a1008 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 90%, #3a2010 0%, transparent 55%),
+                linear-gradient(to bottom, #0f172a 0%, #1e293b 35%, #7f1d1d 75%, #d97736 100%);
+            background-attachment: fixed;
+        }
+
+        /* --- 返回首頁按鈕 --- */
+        .home-btn {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            background: rgba(227, 203, 168, 0.9);
+            color: var(--text-main);
+            border: 2px solid var(--border-brown);
+            padding: 8px 16px;
+            font-size: 1.1rem;
+            font-family: 'BiauKai', 'DFKai-SB', 'Times New Roman', serif;
+            font-weight: bold;
+            text-decoration: none;
+            border-radius: 6px;
+            box-shadow: 2px 4px 10px rgba(0,0,0,0.5);
+            transition: transform 0.2s, background 0.2s, color 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+        }
+        .home-btn:hover {
+            transform: translateY(-2px);
+            background: var(--parchment-light);
+            color: var(--accent-red);
+            box-shadow: 2px 6px 12px rgba(0,0,0,0.6);
+        }
+
+        /* --- 共用：羊皮紙容器樣式 --- */
+        .parchment-box {
+            background-color: var(--parchment-bg);
+            background-image: radial-gradient(circle at center, var(--parchment-light) 0%, var(--parchment-dark) 100%);
+            border-radius: 8px;
+            box-shadow: 
+                inset 0 0 60px rgba(100, 60, 20, 0.4),
+                inset 0 0 10px rgba(0,0,0,0.1),
+                10px 15px 35px rgba(0,0,0,0.8);
+            border: 2px solid var(--border-brown);
+            position: relative;
+            box-sizing: border-box;
+            width: 100%;
+        }
+        .parchment-box::before, .parchment-box::after {
+            content: '';
+            position: absolute;
+            top: 0; bottom: 0; width: 2px;
+            background: linear-gradient(to bottom, transparent, rgba(139, 90, 43, 0.15), transparent);
+            pointer-events: none;
+            z-index: 0;
+        }
+        .parchment-box::before { left: 33%; }
+        .parchment-box::after { left: 66%; }
+
+        /* 共用：古典標題 */
+        .classic-title {
+            text-align: center;
+            color: #4a3123;
+            margin-top: 0;
+            letter-spacing: 3px;
+            text-shadow: 1px 1px 0px rgba(255,255,255,0.4);
+            border-bottom: 2px dashed var(--border-brown);
+            padding-bottom: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            position: relative;
+            z-index: 1;
+        }
+        .classic-title::before, .classic-title::after {
+            content: '❖';
+            font-size: 0.6em;
+            color: var(--accent-red);
+        }
+
+        /* 共用：按鈕樣式 */
+        .classic-btn {
+            background: linear-gradient(135deg, #4a3123, var(--wood-dark));
+            color: var(--parchment-bg);
+            border: 2px solid var(--border-brown);
+            padding: 15px 35px;
+            font-size: 1.25rem;
+            font-family: inherit;
+            letter-spacing: 2px;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5), inset 0 0 5px rgba(255,255,255,0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            position: relative;
+            z-index: 10;
+        }
+        .classic-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.6), inset 0 0 8px rgba(255,255,255,0.2);
+            background: linear-gradient(135deg, #5d4037, #3e2723);
+        }
+
+        /* --- 1. 歷史地圖畫面 --- */
+        #intro-screen {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            z-index: 200;
+            padding: 80px 20px 40px 20px; /* 上方預留按鈕空間 */
+            box-sizing: border-box;
+            overflow-y: auto;
+        }
+        #intro-screen .parchment-box { max-width: 900px; padding: 40px; margin: auto; }
+
+        .map-layout { display: flex; flex-direction: column; gap: 30px; position: relative; z-index: 1; }
+        @media (min-width: 768px) { .map-layout { flex-direction: row; align-items: flex-start; } }
+
+        .map-route-container { flex: 1; padding: 10px; }
+        .map-location { display: flex; align-items: flex-start; gap: 15px; position: relative; }
+        .map-marker {
+            width: 40px; height: 40px; min-width: 40px;
+            background-color: var(--accent-red); color: #fef3c7;
+            border: 3px solid var(--parchment-light); border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: bold; font-size: 1.2rem;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.3);
+            position: relative; z-index: 2;
+        }
+        .map-info { flex: 1; padding-bottom: 15px; }
+        .map-info h3 { margin: 0 0 5px 0; color: var(--text-light); font-size: 1.4rem; border-bottom: 1px solid rgba(139, 90, 43, 0.3); display: inline-block; }
+        .map-info p { margin: 5px 0 0 0; font-size: 1.1rem; line-height: 1.6; text-align: justify; }
+        .map-path-line { height: 40px; border-left: 3px dashed var(--border-brown); margin-left: 18px; opacity: 0.6; margin-top: -10px; margin-bottom: -10px; position: relative; z-index: 1; }
+
+        .map-legend-box {
+            flex: 1; background: rgba(255, 255, 255, 0.3);
+            border: 2px solid var(--border-brown); padding: 20px;
+            box-shadow: inset 0 0 20px rgba(139, 90, 43, 0.15);
+            position: relative; transform: rotate(1deg);
+        }
+        .map-legend-box::before { content: '📌'; position: absolute; top: -15px; left: 50%; transform: translateX(-50%); font-size: 1.5rem; text-shadow: 2px 2px 2px rgba(0,0,0,0.3); }
+        .legend-title { text-align: center; color: var(--accent-red); font-size: 1.4rem; margin-top: 0; margin-bottom: 15px; font-weight: bold; }
+        .legend-illustration { width: 100%; height: 140px; background-color: #d7c1a2; border: 1px solid #a1887f; display: flex; align-items: center; justify-content: center; margin-bottom: 15px; overflow: hidden; }
+        .legend-rules { display: flex; flex-direction: column; gap: 10px; }
+        .l-rule { padding: 10px; border-radius: 4px; font-size: 1.1rem; font-weight: bold; display: flex; align-items: center; gap: 10px; border: 1px solid transparent; }
+        .l-rule.win-rule { background: rgba(22, 101, 52, 0.1); border-color: var(--accent-green); color: var(--accent-green); }
+        .l-rule.lose-rule { background: rgba(153, 27, 27, 0.1); border-color: var(--accent-red); color: var(--accent-red); }
+
+        /* --- 2. 主遊戲互動區 (桌面版預設樣式) --- */
+        #main-app {
+            display: none; 
+            width: 100%;
+            padding: 80px 20px 40px 20px; /* 上方預留按鈕空間 */
+            box-sizing: border-box;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #main-app .parchment-box {
+            max-width: 800px;
+            padding: 30px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8), inset 0 0 60px rgba(100, 60, 20, 0.4);
+        }
+
+        .classic-desc {
+            background: rgba(139, 90, 43, 0.1);
+            border-left: 4px solid var(--border-brown);
+            padding: 15px 20px;
+            font-size: 1.15rem;
+            line-height: 1.6;
+            text-align: justify;
+            margin-bottom: 25px;
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        /* 鎖定狀態面板的佈局高度 */
+        #status-board {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid var(--border-brown);
+            padding: 20px;
+            margin-bottom: 25px;
+            text-align: center;
+            box-sizing: border-box;
+            position: relative;
+            z-index: 10;
+            box-shadow: inset 0 0 15px rgba(139, 90, 43, 0.2);
+            transition: border-color 0.3s ease, background-color 0.3s ease;
+            height: 155px; 
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            backdrop-filter: blur(8px) brightness(0.8);
+            -webkit-backdrop-filter: blur(8px) brightness(0.8);
+        }
+
+        #status-text {
+            font-size: 1.8rem;
+            font-weight: bold;
+            margin-bottom: 15px;
+            height: 65px; 
+            line-height: 1.3;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: color 0.3s ease;
+        }
+        .status-wait { color: var(--text-light); }
+        .status-win { color: var(--accent-green); }
+        .status-lose { color: var(--accent-red); }
+
+        #progress-container {
+            width: 100%; height: 28px;
+            background-color: var(--wood-dark);
+            border: 2px solid #5d4037; border-radius: 14px;
+            overflow: hidden; position: relative;
+            box-shadow: inset 0 3px 6px rgba(0,0,0,0.6);
+        }
+        #progress-bar {
+            height: 100%; width: 0%;
+            background-color: var(--border-brown); 
+            transition: width 0.1s linear, background-color 0.3s ease;
+            box-shadow: inset 0 2px 5px rgba(255,255,255,0.2);
+        }
+        #time-text {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 1rem; font-weight: bold; color: #fff;
+            text-shadow: 1px 1px 3px rgba(0,0,0,0.9), -1px -1px 3px rgba(0,0,0,0.9);
+            letter-spacing: 1px;
+        }
+
+        /* 視訊畫面 (桌面版魔鏡) */
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+            aspect-ratio: 4/3; 
+            background-color: #000;
+            border: 10px solid #3e2723;
+            border-radius: 4px;
+            box-sizing: border-box; 
+            box-shadow: 0 15px 35px rgba(0,0,0,0.6), inset 0 0 20px rgba(0,0,0,0.8);
+            overflow: hidden;
+            z-index: 1;
+            flex-shrink: 0; 
+        }
+        .video-wrapper::after {
+            content: ''; position: absolute;
+            top: 0; bottom: 0; left: 0; right: 0;
+            border: 2px solid rgba(200, 169, 126, 0.5);
+            pointer-events: none; z-index: 3;
+        }
+        video, canvas {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            transform: scaleX(-1); object-fit: cover;
+        }
+        video { z-index: 1; }
+        canvas { z-index: 2; }
+
+        /* --- 3. 覆蓋畫面 (勝利與失敗的結尾畫面) --- */
+        .overlay-screen {
+            position: fixed; 
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(12, 9, 6, 0.92); display: none;
+            flex-direction: column; justify-content: flex-start; 
+            align-items: center; z-index: 300; 
+            padding: 80px 20px 40px 20px; 
+            box-sizing: border-box; overflow-y: auto;
+        }
+        .overlay-screen .parchment-box { 
+            max-width: 700px; padding: 40px; text-align: center; margin: auto; 
+        }
+
+        .verse-box {
+            background: rgba(139, 90, 43, 0.1); border-left: 4px solid var(--border-brown);
+            padding: 15px 20px; margin-bottom: 25px; text-align: left;
+            font-style: italic; color: var(--text-light); line-height: 1.6; font-size: 1.1rem;
+        }
+        .verse-ref { display: block; text-align: right; font-size: 0.95rem; margin-top: 10px; color: var(--accent-red); font-weight: bold; }
+        .encouragement-text { text-align: justify; line-height: 1.8; font-size: 1.15rem; margin-bottom: 35px; }
+        .encouragement-text p { margin-bottom: 15px; }
+        .highlight-bold { color: var(--accent-red); font-weight: bold; }
+        .highlight-green { color: var(--accent-green); font-weight: bold; }
+
+        .loader {
+            border: 5px solid var(--wood-dark); border-top: 5px solid var(--border-brown);
+            border-radius: 50%; width: 50px; height: 50px;
+            animation: spin 1s linear infinite; margin: 0 auto 20px auto;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #error-msg { color: var(--accent-red); font-weight: bold; margin-top: 20px; text-align: center; }
+
+
+        /* =========================================
+           手機相容版型 (Responsive Design)
+           ========================================= */
+
+        @media (max-width: 768px) {
+            .parchment-box { padding: 30px; }
+            .classic-title { font-size: 2.2rem; }
+            #intro-screen .map-title { font-size: 2rem; }
+        }
+
+        @media (max-width: 600px) {
+            /* 調整主容器邊距 */
+            .parchment-box { padding: 25px 15px; }
+            #intro-screen, .overlay-screen { padding: 60px 15px 30px 15px; }
+            
+            /* 調整頂部返回按鈕 */
+            .home-btn { top: 12px; left: 12px; padding: 6px 12px; font-size: 0.95rem; }
+
+            /* =========================================
+               🚀 針對手機版主遊戲區：滿版攝像頭設計 
+               ========================================= */
+            #main-app { 
+                padding: 0; 
+                min-height: 100vh; 
+                min-height: 100dvh; 
+            }
+            #main-app .parchment-box { 
+                background: none; border: none; box-shadow: none; 
+                padding: 0; min-height: 100vh; min-height: 100dvh; 
+                display: flex; flex-direction: column; justify-content: space-between; 
+            }
+            
+            /* 隱藏佔空間的說明，確保攝像頭視野最大化 */
+            #main-app .classic-desc { display: none; }
+            
+            /* 標題改為懸浮在畫面頂端的白字 */
+            #main-app .classic-title { 
+                margin-top: 75px; /* 避開左上角返回按鈕 */
+                color: #fff; 
+                text-shadow: 2px 2px 8px rgba(0,0,0,0.9), -1px -1px 4px rgba(0,0,0,0.8); 
+                font-size: 1.6rem; 
+                z-index: 10;
+                flex-shrink: 0;
+            }
+            #main-app .classic-title::before, #main-app .classic-title::after { display: none; }
+            
+            #app-container { 
+                flex: 1; display: flex; flex-direction: column; justify-content: flex-end; 
+                padding: 15px 15px 30px 15px; z-index: 10; 
+            }
+
+            /* 🌟 滿版攝像頭核心設定 */
+            .video-wrapper { 
+                position: fixed; top: 0; left: 0; 
+                width: 100vw; height: 100vh; height: 100dvh; 
+                aspect-ratio: auto; border: none; border-radius: 0; box-shadow: none;
+                z-index: 1; /* 放置於背景之上，但在UI之下 */
+            }
+            .video-wrapper::after { display: none; } /* 移除內側金線 */
+
+            /* 浮動在畫面底部的狀態面板 */
+            #status-board { 
+                height: 140px; padding: 15px 10px; margin-bottom: 0; 
+                background: rgba(20, 15, 10, 0.7); /* 加深底色確保文字在強光下依然清晰 */
+                backdrop-filter: blur(10px) brightness(0.6);
+                -webkit-backdrop-filter: blur(10px) brightness(0.6);
+                border-radius: 12px;
+                box-shadow: 0 10px 25px rgba(0,0,0,0.8);
+            }
+            #status-text { font-size: 1.4rem; height: 60px; margin-bottom: 10px; }
+            
+            /* 提升文字在半透明深色面板上的對比度 */
+            .status-wait { color: #fef3c7 !important; }
+            .status-win { color: #4ade80 !important; }
+            .status-lose { color: #fca5a5 !important; }
+            
+            /* 縮小地圖/結局畫面的一般標題與去除兩側裝飾 */
+            .classic-title { font-size: 1.7rem; gap: 8px; flex-direction: column; }
+            .classic-title::before, .classic-title::after { display: none; } 
+            
+            /* 調整內文大小 */
+            .encouragement-text { font-size: 1.05rem; }
+            .verse-box { font-size: 1rem; padding: 12px 15px; }
+
+            /* 按鈕滿版寬度 */
+            .classic-btn { width: 100%; font-size: 1.15rem; padding: 12px 20px; box-sizing: border-box; }
+
+            /* 地圖頁面專屬適應 */
+            .map-marker { width: 35px; height: 35px; min-width: 35px; font-size: 1.1rem; }
+            .map-info h3 { font-size: 1.25rem; }
+            .map-info p { font-size: 1rem; }
+            .legend-title { font-size: 1.3rem; }
+            .l-rule { font-size: 1rem; padding: 8px; }
+        }
+
+        /* 針對極小螢幕 (例如 iPhone SE) 的極限壓縮 */
+        @media (max-width: 380px) {
+            .classic-title { font-size: 1.5rem !important; }
+            #status-text { font-size: 1.2rem; line-height: 1.2; height: 50px; }
+            #status-board { height: 125px; }
+            .classic-btn { font-size: 1.05rem; padding: 10px 15px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 全局返回首頁按鈕 -->
+    <a href="index.html" class="home-btn">⇦ 返回首頁</a>
+
+    <!-- 1. 開頭：歷史地圖畫面 -->
+    <div id="intro-screen">
+        <div class="parchment-box">
+            <h1 class="classic-title map-title">西奈半島古地圖：利非訂之役</h1>
+            
+            <div class="map-layout">
+                <!-- 左側：地圖路線 -->
+                <div class="map-route-container">
+                    <div class="map-location">
+                        <div class="map-marker">1</div>
+                        <div class="map-info">
+                            <h3>埃及 (出發點)</h3>
+                            <p>三千多年前，以色列人脫離奴役，踏上未知的曠野旅程。</p>
+                        </div>
+                    </div>
+                    <div class="map-path-line"></div>
+                    <div class="map-location">
+                        <div class="map-marker">2</div>
+                        <div class="map-info">
+                            <h3>利非訂 (遇襲點)</h3>
+                            <p>部隊在荒野中，遭遇兇悍的游牧民族「亞瑪力人」無情突襲，爆發危機。</p>
+                        </div>
+                    </div>
+                    <div class="map-path-line"></div>
+                    <div class="map-location">
+                        <div class="map-marker">3</div>
+                        <div class="map-info">
+                            <h3>高山頂 (決戰點)</h3>
+                            <p>領袖摩西帶著上帝的手杖登上高山，俯瞰戰場。真正的勝負在此決定！</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 右側：圖例 -->
+                <div class="map-legend-box">
+                    <h3 class="legend-title">戰役關鍵圖例</h3>
+                    <div class="legend-illustration">
+                        <img src="doc/war.png" alt="摩西舉手圖例" style="width: 100%; height: 100%; object-fit: cover; border-radius: 4px;">
+                    </div>
+                    <p style="margin: 0 0 10px 0; font-weight: bold;">戰局走向，全繫於摩西的雙手：</p>
+                    <div class="legend-rules">
+                        <div class="l-rule win-rule">🙌 舉起雙手 ➔ 我方得勝</div>
+                        <div class="l-rule lose-rule">👇 垂下雙手 ➔ 敵方反撲</div>
+                    </div>
+                </div>
+            </div>
+
+            <p style="text-align: center; font-size: 1.15rem; margin-top: 35px; margin-bottom: 0; font-weight: bold; position: relative; z-index: 1;">
+                現在，想像你就是站在這張地圖「高山頂」上的摩西。<br>請試著堅持舉起雙手 <span style="font-size: 1.4rem; color: var(--accent-red);">30 秒</span>，帶領軍隊走向勝利！<br>
+                <span style="font-size: 0.85em; color: var(--text-light); display: block; margin-top: 10px; font-weight: normal;">(點擊下方按鈕後將請求開啟您的攝像頭，請準備退後一步)</span>
+            </p>
+
+            <div style="text-align: center; margin-top: 30px; position: relative; z-index: 10;">
+                <button class="classic-btn" onclick="startApp()">🧭 展開地圖，我準備好了</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. 主遊戲互動區 -->
+    <div id="main-app">
+        
+        <!-- 載入畫面 (內部疊加) -->
+        <div id="loading-screen" class="overlay-screen">
+            <div class="parchment-box" style="max-width: 400px; padding: 30px;">
+                <div class="loader"></div>
+                <h2 class="classic-title" style="font-size: 1.8rem; border-bottom: none; margin-bottom: 10px;">展開視野中...</h2>
+                <p id="loading-text-detail" style="margin: 0; line-height: 1.6;">
+                    正在喚醒山頂的視覺與古老戰役。<br>請允許使用您的攝像頭。<br>
+                    <span style="font-size: 0.85rem; color: var(--text-light);">(影像僅在本地處理，不會外流)</span>
+                </p>
+                <p id="error-msg"></p>
+            </div>
+        </div>
+
+        <div class="parchment-box">
+            <h1 class="classic-title">利非訂之役：高山頂的交戰</h1>
+            
+            <div class="classic-desc">
+                請退後讓鏡頭拍到上半身。<b>當您高舉雙手（手腕高過肩膀），以色列軍隊將會得勝；若放下雙手，亞瑪力人將會反撲。</b>請為您的軍隊堅持累積 <b>30 秒</b>！
+            </div>
+
+            <div id="app-container">
+                <!-- 狀態儀表板 -->
+                <div id="status-board">
+                    <div id="status-text" class="status-wait">請站入鏡頭並舉起雙手 (起點: 5秒)</div>
+                    <div id="progress-container">
+                        <div id="progress-bar"></div>
+                        <div id="time-text">5.0 / 30 秒</div>
+                    </div>
+                </div>
+
+                <!-- 鏡頭畫面 -->
+                <div class="video-wrapper">
+                    <video id="video" playsinline autoplay muted></video>
+                    <canvas id="canvas"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. 結局覆蓋畫面 (勝利與失敗) -->
+    <div id="victory-screen" class="overlay-screen">
+        <div class="parchment-box">
+            <h1 class="classic-title" style="color: var(--accent-green); font-size: 2rem;">耶和華尼西！</h1>
+            <div style="font-size: 1.3rem; margin-bottom: 25px; font-weight: bold; color: var(--text-main);">
+                恭喜你得勝了！這不僅是你的勝利，更是神同在的印記。
+            </div>
+            
+            <div class="verse-box">
+                「摩西何時舉手，以色列人就得勝... 摩西築了一座壇，起名叫『耶和華尼西』（就是耶和華是我旌旗的意思）。」
+                <span class="verse-ref">— 聖經《出埃及記》 17:11, 15</span>
+            </div>
+
+            <div class="encouragement-text">
+                <p>在這 30 秒鐘裡，你的手臂必定感到了痠痛與沉重。想像一下當年的摩西，從早晨直到日落，他承受著多麼巨大的考驗！</p>
+                <p>這提醒了我們，在生活的各樣爭戰與困難中，<span class="highlight-bold">我們不是倚靠自己的勢力或才能，而是倚靠那加給我們力量的主。</span>當我們願意向神舉起雙手——藉著禱告與交託，這股看不見的力量就會為我們爭戰。</p>
+                <p>當你感到疲憊想要放下雙手時，請記得：摩西有亞倫和戶珥扶持。在神的家中你從不孤單！有弟兄姊妹的代禱、有上帝的扶持，我們能一同站立得穩。</p>
+                <p>願你在接下來的每一天，都能揚起<span class="highlight-green">「耶和華尼西」（上帝是我的得勝旌旗）</span>。願神賜福與你，賜你剛強壯膽的心！</p>
+            </div>
+
+            <button class="classic-btn" onclick="resetGame()">📜 再次舉起得勝的手</button>
+        </div>
+    </div>
+
+    <div id="defeat-screen" class="overlay-screen">
+        <div class="parchment-box">
+            <h1 class="classic-title" style="color: var(--accent-red); font-size: 2rem;">亞瑪力人得勝了...</h1>
+            <div style="font-size: 1.3rem; margin-bottom: 25px; font-weight: bold; color: var(--text-main);">
+                你的手垂下了，敵軍佔了上風。
+            </div>
+            
+            <div class="verse-box">
+                「摩西何時舉手，以色列人就得勝，何時垂手，亞瑪力人就得勝。但摩西的手發沉...」
+                <span class="verse-ref">— 聖經《出埃及記》 17:11-12</span>
+            </div>
+
+            <div class="encouragement-text">
+                <p>要舉起雙手長達 30 秒確實不容易，手臂的痠痛讓你放下了手。這正是當年摩西所面臨的真實光景——<span class="highlight-bold">人的肉體總是軟弱的</span>。</p>
+                <p>我們在生活、工作或學習中，也常常會感到「手發沉」，覺得再也撐不下去了。困難（如同亞瑪力人）往往就在我們最疲憊、最想放棄的時候發動攻擊。</p>
+                <p>但請不要灰心！摩西撐不下去時，上帝預備了亞倫和戶珥搬石頭讓他坐下，並在兩邊扶著他的手。這告訴我們，<span class="highlight-bold">承認自己的軟弱並不可恥</span>，我們需要尋求屬靈同伴的幫助，更需要倚靠上帝賜下夠用的恩典。</p>
+                <p>休息一下，揉揉肩膀。準備好再次倚靠這份力量，迎向挑戰了嗎？</p>
+            </div>
+
+            <button class="classic-btn" onclick="resetGame()">📜 尋求力量，再次挑戰</button>
+        </div>
+    </div>
+
+    <!-- 遊戲邏輯腳本 -->
+    <script>
+        const introScreen = document.getElementById('intro-screen');
+        const mainApp = document.getElementById('main-app');
+        
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const loadingScreen = document.getElementById('loading-screen');
+        const loadingTextDetail = document.getElementById('loading-text-detail');
+        const victoryScreen = document.getElementById('victory-screen');
+        const defeatScreen = document.getElementById('defeat-screen');
+        const errorMsg = document.getElementById('error-msg');
+        
+        const statusText = document.getElementById('status-text');
+        const statusBoard = document.getElementById('status-board');
+        const progressBar = document.getElementById('progress-bar');
+        const timeText = document.getElementById('time-text');
+
+        let detector;
+        let isGameRunning = false;
+        let hasGameStarted = false; 
+        const TARGET_TIME = 30; 
+        const INITIAL_TIME = 5; 
+        let handsUpTime = INITIAL_TIME; 
+        let lastTime = 0;
+        let animationFrameId;
+        
+        // 【核心優化】：背景預先載入 AI 模型的 Promise
+        let detectorPromise = null;
+
+        // 定義古典色彩供 JS 使用
+        const COLOR_WAIT = '#8b5a2b';
+        const COLOR_WIN = '#166534';
+        const COLOR_LOSE = '#991b1b';
+        const COLOR_SKELETON_UP = '#4ade80'; 
+        const COLOR_SKELETON_DOWN = '#f87171';
+
+        // 當網頁載入完成，背景立刻開始偷偷下載 AI 模型
+        window.addEventListener('DOMContentLoaded', () => {
+            const detectorConfig = { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING };
+            detectorPromise = poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, detectorConfig);
+            console.log("正在背景預先載入 AI 模型...");
+        });
+
+        function startApp() {
+            introScreen.style.display = 'none';
+            mainApp.style.display = 'flex';
+            loadingScreen.style.display = 'flex';
+            document.body.classList.add('mountain-mode');
+            init();
+        }
+
+        async function init() {
+            try {
+                loadingTextDetail.innerText = "正在請求相機權限...";
+                // 手機版：不綁死解析度，以換取最理想的直向全螢幕視野
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user' },
+                    audio: false
+                });
+                video.srcObject = stream;
+                
+                await new Promise((resolve) => {
+                    video.onloadedmetadata = () => resolve();
+                });
+                
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+
+                loadingTextDetail.innerHTML = "正在初始化...<br><span style='font-size: 0.85rem; color: var(--text-light);'>(初次載入需下載依賴檔案，請稍候)</span>";
+                
+                // 等待「已經在背景下載」的模型完成。如果早就下載好了，這裡會秒速通過！
+                detector = await detectorPromise;
+
+                loadingScreen.style.display = 'none';
+                isGameRunning = true;
+                lastTime = performance.now();
+                animationFrameId = requestAnimationFrame(gameLoop);
+
+            } catch (error) {
+                console.error("初始化失敗:", error);
+                errorMsg.innerText = "無法存取相機，請確保您已授權瀏覽器使用相機權限。";
+            }
+        }
+
+        function resetGame() {
+            handsUpTime = INITIAL_TIME;
+            hasGameStarted = false;
+            updateUI(false, false);
+            
+            victoryScreen.style.display = 'none';
+            defeatScreen.style.display = 'none';
+            
+            isGameRunning = true;
+            lastTime = performance.now();
+            
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        async function gameLoop(currentTime) {
+            if (!isGameRunning) return;
+
+            const deltaTime = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
+
+            const poses = await detector.estimatePoses(video, {
+                maxPoses: 1,
+                flipHorizontal: false
+            });
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            let areHandsUp = false;
+            let poseDetected = false;
+
+            if (poses.length > 0) {
+                const keypoints = poses[0].keypoints;
+                const leftShoulder = keypoints.find(k => k.name === 'left_shoulder');
+                const rightShoulder = keypoints.find(k => k.name === 'right_shoulder');
+                const leftWrist = keypoints.find(k => k.name === 'left_wrist');
+                const rightWrist = keypoints.find(k => k.name === 'right_wrist');
+
+                const MIN_SCORE = 0.3;
+
+                if (leftShoulder.score > MIN_SCORE && rightShoulder.score > MIN_SCORE &&
+                    leftWrist.score > MIN_SCORE && rightWrist.score > MIN_SCORE) {
+                    
+                    poseDetected = true;
+
+                    if (leftWrist.y < leftShoulder.y && rightWrist.y < rightShoulder.y) {
+                        areHandsUp = true;
+                        hasGameStarted = true;
+                    }
+
+                    drawSkeleton(keypoints, areHandsUp);
+                }
+            }
+
+            if (areHandsUp) {
+                handsUpTime += deltaTime;
+                if (handsUpTime > TARGET_TIME) handsUpTime = TARGET_TIME;
+            } else if (hasGameStarted) {
+                handsUpTime -= deltaTime * 1.5;
+                if (handsUpTime < 0) handsUpTime = 0;
+            }
+
+            updateUI(areHandsUp, poseDetected);
+
+            if (handsUpTime >= TARGET_TIME) {
+                isGameRunning = false;
+                showEndScreen(victoryScreen);
+            } else if (hasGameStarted && handsUpTime <= 0) {
+                isGameRunning = false;
+                showEndScreen(defeatScreen);
+            } else {
+                animationFrameId = requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function drawSkeleton(keypoints, areHandsUp) {
+            const color = areHandsUp ? COLOR_SKELETON_UP : COLOR_SKELETON_DOWN;
+            
+            keypoints.forEach(keypoint => {
+                if (keypoint.score > 0.3) {
+                    ctx.beginPath();
+                    ctx.arc(keypoint.x, keypoint.y, 5, 0, 2 * Math.PI);
+                    ctx.fillStyle = color;
+                    ctx.fill();
+                }
+            });
+
+            const connections = [
+                ['left_shoulder', 'left_elbow'], ['left_elbow', 'left_wrist'],
+                ['right_shoulder', 'right_elbow'], ['right_elbow', 'right_wrist'],
+                ['left_shoulder', 'right_shoulder']
+            ];
+
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = color;
+
+            connections.forEach(([p1Name, p2Name]) => {
+                const p1 = keypoints.find(k => k.name === p1Name);
+                const p2 = keypoints.find(k => k.name === p2Name);
+
+                if (p1 && p2 && p1.score > 0.3 && p2.score > 0.3) {
+                    ctx.beginPath();
+                    ctx.moveTo(p1.x, p1.y);
+                    ctx.lineTo(p2.x, p2.y);
+                    ctx.stroke();
+                }
+            });
+        }
+
+        function updateUI(areHandsUp, poseDetected) {
+            const percentage = (handsUpTime / TARGET_TIME) * 100;
+            progressBar.style.width = `${percentage}%`;
+            timeText.innerText = `${handsUpTime.toFixed(1)} / 30 秒`;
+
+            statusText.className = ''; 
+
+            if (!hasGameStarted) {
+                statusText.innerText = "請站入鏡頭並舉起雙手開始";
+                statusText.classList.add("status-wait");
+                statusBoard.style.borderColor = COLOR_WAIT;
+                progressBar.style.backgroundColor = COLOR_WAIT;
+            } else if (!poseDetected) {
+                statusText.innerText = "無法偵測雙手...請退後！";
+                statusText.classList.add("status-wait");
+                statusBoard.style.borderColor = COLOR_WAIT;
+                progressBar.style.backgroundColor = COLOR_WAIT;
+            } else if (areHandsUp) {
+                statusText.innerText = "得勝...以色列軍隊佔上風";
+                statusText.classList.add("status-win");
+                statusBoard.style.borderColor = COLOR_WIN;
+                progressBar.style.backgroundColor = COLOR_WIN;
+            } else {
+                statusText.innerText = "手垂下了...亞瑪力人反撲";
+                statusText.classList.add("status-lose");
+                statusBoard.style.borderColor = COLOR_LOSE;
+                progressBar.style.backgroundColor = COLOR_LOSE;
+            }
+        }
+
+        function showEndScreen(screenElement) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            setTimeout(() => {
+                screenElement.style.display = 'flex';
+                const scrollBox = screenElement.querySelector('.parchment-box');
+                if(scrollBox) scrollBox.scrollTop = 0;
+            }, 300);
+        }
+    </script>
+</body>
+</html>

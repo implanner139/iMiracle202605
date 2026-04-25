@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>彼得水上行走 - 眼球追蹤版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 MediaPipe Face Mesh 與 Camera Utils -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700&display=swap');
+
+        body {
+            font-family: 'Noto Serif TC', serif;
+            margin: 0;
+            overflow: hidden;
+            background-color: #050b14;
+            color: white;
+        }
+
+        /* 遊戲場景 */
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background: #000;
+        }
+
+        /* 滿版背景影片與模糊轉場設定 */
+        .bg-video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .video-transition {
+            transition: filter 1.2s ease-in-out, opacity 1.2s ease-in-out;
+        }
+
+        .blur-hidden {
+            opacity: 0;
+            filter: blur(15px);
+            z-index: 5;
+            pointer-events: none;
+        }
+
+        .blur-visible {
+            opacity: 1;
+            filter: blur(0px);
+            z-index: 10;
+        }
+
+        /* 攝影機與畫布容器 */
+        #webcam-container {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            width: 160px;
+            height: 120px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 8px;
+            overflow: hidden;
+            z-index: 50;
+            box-shadow: 0 0 15px rgba(0,0,0,0.8);
+            transform: scaleX(-1); /* 鏡像顯示 */
+        }
+
+        #webcam, #webcam-canvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            object-fit: cover;
+        }
+        
+        #webcam { opacity: 0.6; }
+
+        @media (max-width: 768px) {
+            #webcam-container {
+                width: 110px;
+                height: 82px;
+                top: 15px;
+                right: 15px;
+            }
+            .status-badge {
+                bottom: -22px;
+                font-size: 10px;
+            }
+        }
+
+        /* UI 狀態 */
+        .overlay-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            text-align: center;
+            padding: 20px;
+            overflow-y: auto; /* 允許垂直滾動，解決截斷問題 */
+            -webkit-overflow-scrolling: touch;
+        }
+
+        /* 解決高度較小的手機螢幕被上下裁切的問題 */
+        @media (max-height: 850px) {
+            .overlay-screen {
+                justify-content: flex-start; /* 改為靠上對齊 */
+                padding-top: 80px; /* 避開左上角的返回按鈕 */
+                padding-bottom: 40px;
+            }
+        }
+
+        /* 視線狀態提示 */
+        #gaze-warning {
+            position: absolute;
+            top: 25%;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #ff4d4d;
+            font-size: 1.5rem;
+            font-weight: bold;
+            text-shadow: 0 0 10px rgba(255,0,0,0.8);
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 40;
+            pointer-events: none;
+        }
+        
+        #progress-bar-container {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80%;
+            max-width: 300px;
+            height: 10px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 5px;
+            z-index: 40;
+        }
+        #progress-bar {
+            height: 100%;
+            width: 0%;
+            background: #ffd700;
+            border-radius: 5px;
+            transition: width 0.2s;
+        }
+
+        .status-badge {
+            position: absolute;
+            bottom: -30px;
+            left: 50%;
+            transform: translateX(-50%) scaleX(-1); /* 抵銷父層鏡像，讓文字正向 */
+            background: rgba(0,0,0,0.7);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        
+        /* 自訂滾動條樣式 */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2); 
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3); 
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.5); 
+        }
+
+    </style>
+</head>
+<body>
+    <!-- 全域返回首頁按鈕 -->
+    <a href="index.html" class="fixed top-5 left-5 z-[1000] bg-gray-900/70 hover:bg-gray-800 text-white px-4 py-2 md:px-5 md:py-2.5 rounded-full backdrop-blur-md border border-gray-600 transition shadow-lg flex items-center text-sm md:text-base font-bold group">
+        <span class="transform group-hover:-translate-x-1 transition mr-1 md:mr-2">⇦</span>
+        <span>返回首頁</span>
+    </a>
+
+    <!-- 視訊與眼球追蹤畫布 -->
+    <div id="webcam-container">
+        <video id="webcam" autoplay playsinline></video>
+        <canvas id="webcam-canvas"></canvas>
+        <div id="status-text" class="status-badge text-green-400">專注中</div>
+    </div>
+
+    <div id="game-container">
+        <!-- 背景影片 A: 水上行走 (請替換 src 為您的影片路徑) -->
+        <video id="video-a" class="bg-video video-transition blur-visible" src="doc/peter1.mp4" loop playsinline></video>
+        
+        <!-- 背景影片 B: 下沉 (請替換 src 為您的影片路徑) -->
+        <video id="video-b" class="bg-video video-transition blur-hidden" src="doc/peter2.mp4" playsinline></video>
+
+        <div id="progress-bar-container"><div id="progress-bar"></div></div>
+        <div id="gaze-warning">⚠️ 眼球偏離！彼得正在下沉...</div>
+    </div>
+
+    <!-- 開始畫面 -->
+    <div id="start-screen" class="overlay-screen">
+        <h1 class="text-4xl md:text-5xl font-bold mb-3 text-yellow-400 drop-shadow-lg shrink-0">彼得水上行走</h1>
+        <div class="text-sm text-yellow-200 mb-5 bg-yellow-900/50 px-3 py-1 rounded-full border border-yellow-600 shrink-0">
+            搭載高精度眼球追蹤 (Iris Tracking)
+        </div>
+
+        <!-- 故事緣由區塊 -->
+        <div class="bg-gray-900/80 p-5 rounded-lg mb-5 max-w-2xl text-left border border-gray-700 shadow-lg overflow-y-auto max-h-[35vh] custom-scrollbar w-full shrink-0">
+            <h3 class="text-xl font-bold mb-3 text-white flex items-center border-b border-gray-700 pb-2">
+                📖 聖經背景故事：風浪中的考驗
+            </h3>
+            <div class="text-gray-300 leading-relaxed text-sm md:text-base space-y-3">
+                <p>在兩千多年前的加利利海上，發生了一個關於「信心」與「焦點」的奇蹟。</p>
+                <p>那日夜裡，海面突然狂風大作，波濤洶湧，門徒的船在風浪中搖搖欲墜。就在凌晨時分，耶穌竟然「在海面上走」，朝著門徒的船走去！門徒嚇壞了，以為是幻影。耶穌連忙安撫他們：「你們放心！是我，不要怕！」</p>
+                <p>這時，生性熱忱的彼得大聲說：<strong class="text-white">「主，如果是你，請叫我從水面上走到你那裡去。」</strong>耶穌回答：「你來吧。」</p>
+                <p class="text-blue-300 font-medium">彼得竟然真的跨出船身，走在水面上！但當他眼光從耶穌身上移開，轉而看向周圍狂風巨浪時，恐懼佔據了心頭，他便開始下沉...</p>
+                <p>這段記載在《馬太福音 14:22-33》的故事，如今將由你來親自體驗。你能否在風暴中定睛於主，不看周圍的風浪呢？</p>
+            </div>
+        </div>
+
+        <div class="bg-gray-800 p-5 rounded-lg mb-6 max-w-2xl text-left border border-gray-600 w-full shadow-lg shrink-0">
+            <h3 class="text-lg font-bold mb-2 text-white">操作說明：</h3>
+            <ul class="list-disc pl-5 text-gray-300 space-y-1 text-sm md:text-base">
+                <li>請允許瀏覽器使用<strong class="text-white">攝影機</strong>。</li>
+                <li>不僅是頭部，請確保你的<strong class="text-yellow-300">雙眼直視畫面正中央 <span id="instruction-time">5</span> 秒鐘</strong>。</li>
+                <li>右上角會顯示 AI 捕捉到的<strong class="text-green-400">眼球位置 (綠點)</strong>。</li>
+                <li>當海浪出現時，如果你的<strong class="text-red-400">眼球忍不住飄過去看 (紅點)</strong>，畫面將無縫切換，彼得就會立刻下沉！</li>
+            </ul>
+        </div>
+        
+        <div id="action-buttons" class="flex flex-col sm:flex-row gap-4 shrink-0">
+            <button id="start-btn" class="px-8 py-3 md:py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-full text-lg md:text-xl transition transform hover:scale-105 shadow-[0_0_15px_rgba(37,99,235,0.7)]">
+                啟動眼球追蹤並開始
+            </button>
+            <a href="index.html" class="px-8 py-3 md:py-4 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded-full text-lg md:text-xl transition flex justify-center items-center shadow-lg">
+                返回首頁
+            </a>
+        </div>
+        <p id="loading-text" class="mt-4 text-gray-400 hidden shrink-0">正在載入 AI 視覺模型，請稍候...</p>
+    </div>
+
+    <!-- 失敗畫面 -->
+    <div id="game-over-screen" class="overlay-screen hidden">
+        <h2 class="text-3xl md:text-5xl font-bold mb-3 md:mb-4 text-blue-300 drop-shadow-lg shrink-0">彼得將要沉下去...</h2>
+        <p class="text-xl md:text-3xl max-w-2xl mb-2 md:mb-4 leading-relaxed text-white shrink-0">
+            「你這小信的人哪，<br>
+            <span class="text-red-400 font-bold">為什麼疑惑呢？</span>」
+        </p>
+        <p class="text-sm md:text-md text-gray-400 mb-4 md:mb-6 shrink-0">(馬太福音 14:31)</p>
+        
+        <!-- 加入滾動條機制，避免內文太長撐破版面 -->
+        <div class="bg-gray-800/80 p-5 md:p-6 rounded-lg mb-6 max-w-2xl text-left border border-blue-600/50 shadow-lg overflow-y-auto max-h-[35vh] custom-scrollbar w-full shrink-0">
+            <p class="text-base md:text-lg text-gray-200 leading-relaxed">
+                當彼得的目光從耶穌身上移開，轉向周圍洶湧的波濤時，恐懼便佔據了信心，他開始下沉。<br><br>
+                在我們的生命中，風浪（困難、焦慮、誘惑）總是真實存在的，而且很容易奪走我們的注意力。但請記得經文的下一句：<strong class="text-blue-300">「耶穌趕緊伸手拉住他。」</strong><br><br>
+                即使我們軟弱、失去焦點而下沉，主的恩典依然托住我們。現在，深呼吸，重新將目光對準祂吧！
+            </p>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-4 shrink-0">
+            <button onclick="resetGame()" class="px-8 py-3 bg-transparent border-2 border-white hover:bg-white hover:text-black text-white font-bold rounded-full text-lg md:text-xl transition">
+                重新仰望主
+            </button>
+            <a href="index.html" class="px-8 py-3 bg-gray-800 border-2 border-gray-600 hover:bg-gray-700 text-white font-bold rounded-full text-lg md:text-xl transition flex justify-center items-center">
+                返回首頁
+            </a>
+        </div>
+    </div>
+
+    <!-- 成功畫面 -->
+    <div id="success-screen" class="overlay-screen hidden">
+        <h2 class="text-3xl md:text-5xl font-bold mb-3 md:mb-4 text-yellow-400 drop-shadow-lg shrink-0">成功走向耶穌！</h2>
+        <p class="text-xl md:text-3xl max-w-2xl mb-2 md:mb-4 leading-relaxed text-white shrink-0">
+            「在人這是不能的，<br>
+            <span class="text-yellow-200 font-bold">在神凡事都能。</span>」
+        </p>
+        <p class="text-sm md:text-md text-gray-400 mb-4 md:mb-6 shrink-0">(馬太福音 19:26)</p>
+        
+        <!-- 加入滾動條機制，避免內文太長撐破版面 -->
+        <div class="bg-gray-800/80 p-5 md:p-6 rounded-lg mb-6 max-w-2xl text-left border border-yellow-600/50 shadow-lg overflow-y-auto max-h-[35vh] custom-scrollbar w-full shrink-0">
+            <p class="text-base md:text-lg text-gray-200 leading-relaxed">
+                在這短短的幾秒鐘裡，你克服了旁騖，專注地走向主。<br><br>
+                走在水面上是違反自然法則的，正如在絕境中依然保有平安與喜樂，在世人眼中是不可思議的。<strong class="text-yellow-300">但當我們定睛於為我們信心創始成終的耶穌，奇蹟就會發生。</strong><br><br>
+                那看似會吞噬我們的狂風巨浪，其實只是經歷神大能的踏腳石。願你在未來的每一天，無論順境逆境，都能緊緊鎖定耶穌的目光，經歷那出人意外的平安！
+            </p>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-4 shrink-0">
+            <button onclick="resetGame()" class="px-8 py-3 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded-full text-lg md:text-xl transition shadow-[0_0_15px_rgba(202,138,4,0.7)] transform hover:scale-105">
+                再次經歷恩典
+            </button>
+            <a href="index.html" class="px-8 py-3 bg-gray-800 border-2 border-yellow-600 hover:bg-gray-700 text-white font-bold rounded-full text-lg md:text-xl transition flex justify-center items-center">
+                返回首頁
+            </a>
+        </div>
+    </div>
+
+    <script>
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('webcam-canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const statusText = document.getElementById('status-text');
+
+        const startBtn = document.getElementById('start-btn');
+        const loadingText = document.getElementById('loading-text');
+        const startScreen = document.getElementById('start-screen');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const successScreen = document.getElementById('success-screen');
+        
+        const videoA = document.getElementById('video-a');
+        const videoB = document.getElementById('video-b');
+        const progressBar = document.getElementById('progress-bar');
+        const gazeWarning = document.getElementById('gaze-warning');
+
+        let isPlaying = false;
+        let gameState = 'idle'; // 狀態管理：idle, playing_a, playing_b, won
+        let progress = 0; 
+        let sinkLevel = 0; 
+        let isLookingCenter = true;
+        
+        // 動態判定得勝時間：手機版 7 秒，其他 5 秒
+        let winTimeSeconds = window.innerWidth < 768 ? 7 : 5;
+        let WALK_SPEED = 100 / (60 * winTimeSeconds); 
+        
+        // 下沉標準 (大約 2 秒鐘沒看就會觸發下沉影片: 100 / 120幀 ≈ 0.833)
+        const SINK_SPEED = 0.833;  
+        // 視線恢復時快速消除下沉警告
+        const RECOVER_SPEED = 1.66; 
+        const MAX_SINK = 100;
+
+        // 更新介面上的秒數顯示
+        function updateTimeDisplay() {
+            const timeElements = [document.getElementById('instruction-time'), document.getElementById('success-time')];
+            timeElements.forEach(el => { if(el) el.textContent = winTimeSeconds; });
+        }
+        
+        // 監聽視窗大小改變，即時更新難度 (僅限未開始遊戲時)
+        window.addEventListener('resize', () => {
+            if (!isPlaying) {
+                winTimeSeconds = window.innerWidth < 768 ? 7 : 5;
+                WALK_SPEED = 100 / (60 * winTimeSeconds);
+                updateTimeDisplay();
+            }
+        });
+        
+        document.addEventListener('DOMContentLoaded', updateTimeDisplay);
+
+        // 設定畫布解析度與視訊相同以確保座標對齊
+        const CAMERA_WIDTH = 320;
+        const CAMERA_HEIGHT = 240;
+        canvasElement.width = CAMERA_WIDTH;
+        canvasElement.height = CAMERA_HEIGHT;
+
+        // 初始化 MediaPipe Face Mesh
+        const faceMesh = new FaceMesh({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+        }});
+        
+        faceMesh.setOptions({
+            maxNumFaces: 1,
+            refineLandmarks: true, // 關鍵：開啟虹膜與精細眼部特徵點
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        faceMesh.onResults(onResults);
+
+        let camera = new Camera(videoElement, {
+            onFrame: async () => {
+                if(isPlaying) {
+                    await faceMesh.send({image: videoElement});
+                }
+            },
+            width: CAMERA_WIDTH,
+            height: CAMERA_HEIGHT
+        });
+
+        startBtn.addEventListener('click', () => {
+            document.getElementById('action-buttons').classList.add('hidden');
+            loadingText.classList.remove('hidden');
+            
+            // 【解鎖手機版聲音限制】
+            // 1. 強制關閉靜音
+            videoA.muted = false;
+            videoB.muted = false;
+            
+            // 2. 利用使用者的「點擊」事件，瞬間喚醒並解鎖兩支影片的聲音與播放權限
+            const playA = videoA.play();
+            if (playA !== undefined) {
+                playA.then(() => { videoA.pause(); videoA.currentTime = 0; }).catch(e => console.log("喚醒A失敗", e));
+            }
+            
+            const playB = videoB.play();
+            if (playB !== undefined) {
+                playB.then(() => { videoB.pause(); videoB.currentTime = 0; }).catch(e => console.log("喚醒B失敗", e));
+            }
+            
+            camera.start().then(() => {
+                startScreen.classList.add('hidden');
+                startGame();
+            }).catch(err => {
+                alert("無法存取攝影機，請確認已給予權限！");
+                document.getElementById('action-buttons').classList.remove('hidden');
+                loadingText.classList.add('hidden');
+            });
+        });
+
+        function onResults(results) {
+            if (!isPlaying) return;
+
+            // 清空畫布
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                const landmarks = results.multiFaceLandmarks[0];
+                
+                // 1. 判斷頭部是否面向正前方 (避免轉頭卻斜眼看螢幕)
+                const nose = landmarks[1];
+                const faceLeft = landmarks[234];
+                const faceRight = landmarks[454];
+                const faceWidth = faceRight.x - faceLeft.x;
+                const noseRatio = (nose.x - faceLeft.x) / faceWidth;
+                const isHeadStraight = (noseRatio > 0.35 && noseRatio < 0.65);
+
+                // 2. 眼球/虹膜追蹤 (Gaze Tracking)
+                // 檢查是否支援 refineLandmarks (特徵點需大於 470)
+                if (landmarks.length > 470) {
+                    // 解剖學左眼 (畫面右側): 內眼角 133, 外眼角 33, 虹膜中心 468
+                    const leftInner = landmarks[133];
+                    const leftOuter = landmarks[33];
+                    const leftIris = landmarks[468];
+                    
+                    // 解剖學右眼 (畫面左側): 內眼角 362, 外眼角 263, 虹膜中心 473
+                    const rightInner = landmarks[362];
+                    const rightOuter = landmarks[263];
+                    const rightIris = landmarks[473];
+
+                    // 計算虹膜在眼眶X軸中的比例 (0~1 之間)
+                    // 左眼 X 軸範圍
+                    const lxMin = Math.min(leftInner.x, leftOuter.x);
+                    const lxMax = Math.max(leftInner.x, leftOuter.x);
+                    const leftGazeRatio = (leftIris.x - lxMin) / (lxMax - lxMin);
+
+                    // 右眼 X 軸範圍
+                    const rxMin = Math.min(rightInner.x, rightOuter.x);
+                    const rxMax = Math.max(rightInner.x, rightOuter.x);
+                    const rightGazeRatio = (rightIris.x - rxMin) / (rxMax - rxMin);
+
+                    // 綜合雙眼視線比例 (大約 0.45 ~ 0.55 代表直視)
+                    const avgGazeRatio = (leftGazeRatio + rightGazeRatio) / 2;
+                    
+                    // 寬容度設定：容許微微偏移，但如果看旁邊的海浪就會超過範圍
+                    const isEyesStraight = (avgGazeRatio > 0.40 && avgGazeRatio < 0.60);
+
+                    // 最終判定：頭與眼球都必須直視
+                    isLookingCenter = isHeadStraight && isEyesStraight;
+
+                    // --- 在畫面上繪製追蹤點 ---
+                    canvasCtx.fillStyle = isLookingCenter ? '#00FF00' : '#FF0000'; // 直視綠點，偏移紅點
+                    
+                    // 畫眼角 (幫助視覺對位)
+                    canvasCtx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                    [leftInner, leftOuter, rightInner, rightOuter].forEach(pt => {
+                        canvasCtx.beginPath();
+                        canvasCtx.arc(pt.x * CAMERA_WIDTH, pt.y * CAMERA_HEIGHT, 1.5, 0, 2 * Math.PI);
+                        canvasCtx.fill();
+                    });
+
+                    // 畫虹膜
+                    canvasCtx.fillStyle = isLookingCenter ? '#00FF00' : '#FF0000';
+                    [leftIris, rightIris].forEach(pt => {
+                        canvasCtx.beginPath();
+                        canvasCtx.arc(pt.x * CAMERA_WIDTH, pt.y * CAMERA_HEIGHT, 3, 0, 2 * Math.PI);
+                        canvasCtx.fill();
+                    });
+                    
+                    // 更新 UI 狀態文字
+                    if (isLookingCenter) {
+                        statusText.textContent = "專注中";
+                        statusText.className = "status-badge text-green-400";
+                    } else if (!isHeadStraight) {
+                        statusText.textContent = "轉頭了！";
+                        statusText.className = "status-badge text-red-500 font-bold";
+                    } else {
+                        statusText.textContent = "眼球飄移！";
+                        statusText.className = "status-badge text-red-500 font-bold";
+                    }
+
+                } else {
+                    // 降級方案 (如果設備不支援 refineLandmarks)
+                    isLookingCenter = isHeadStraight;
+                    statusText.textContent = "僅頭部追蹤";
+                }
+            } else {
+                isLookingCenter = false;
+                statusText.textContent = "找不到臉部";
+                statusText.className = "status-badge text-gray-400";
+            }
+            canvasCtx.restore();
+        }
+
+        function startGame() {
+            isPlaying = true;
+            gameState = 'playing_a';
+            progress = 0;
+            sinkLevel = 0;
+            isLookingCenter = true;
+            
+            // 清除任何動態設定的 filter 確保 CSS class 正確作用
+            videoA.style.filter = '';
+            videoB.style.filter = '';
+
+            // 處理影片初始狀態與轉場
+            videoA.loop = true; // 遊戲開始時開啟循環播放
+            videoA.onended = null; // 清空殘留的監聽器
+            videoA.currentTime = 0;
+            videoA.classList.remove('blur-hidden');
+            videoA.classList.add('blur-visible');
+            videoA.play().catch(e => console.log("影片A播放失敗:", e));
+            
+            videoB.pause();
+            videoB.currentTime = 0;
+            videoB.classList.remove('blur-visible');
+            videoB.classList.add('blur-hidden');
+
+            updateVisuals();
+            gameLoop();
+        }
+
+        function resetGame() {
+            gameOverScreen.classList.add('hidden');
+            successScreen.classList.add('hidden');
+            startGame();
+        }
+
+        function gameLoop() {
+            if (!isPlaying || gameState !== 'playing_a') return;
+
+            if (isLookingCenter) {
+                progress += WALK_SPEED;
+                sinkLevel -= RECOVER_SPEED;
+                if (sinkLevel < 0) sinkLevel = 0;
+                gazeWarning.style.opacity = '0';
+            } else {
+                sinkLevel += SINK_SPEED;
+                gazeWarning.style.opacity = '1';
+            }
+
+            updateVisuals();
+
+            // 若下沉指數滿了，觸發下沉模糊轉場
+            if (sinkLevel >= MAX_SINK) {
+                triggerLoseSequence();
+            } else if (progress >= 100) {
+                winGame(); // 直接無縫接軌至成功畫面
+            } else {
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function updateVisuals() {
+            progressBar.style.width = `${progress}%`;
+
+            // 在危險邊緣時，讓影片A稍微變暗以作警告提示
+            const darkness = 1 - (sinkLevel / MAX_SINK) * 0.5;
+            let filterStyle = `brightness(${darkness})`;
+
+            // 實作影片循環時的無縫模糊轉場
+            if (videoA.duration) {
+                const fadeTime = 0.8; // 模糊轉場的時間(秒)
+                const timeLeft = videoA.duration - videoA.currentTime;
+                let loopBlur = 0;
+                
+                if (timeLeft < fadeTime) {
+                    loopBlur = ((fadeTime - timeLeft) / fadeTime) * 15; // 從結尾前 0.8 秒開始模糊至 15px
+                } else if (videoA.currentTime < fadeTime) {
+                    loopBlur = ((fadeTime - videoA.currentTime) / fadeTime) * 15; // 從開頭 0 秒清晰回 0px
+                }
+                
+                if (loopBlur > 0) {
+                    filterStyle += ` blur(${loopBlur}px)`;
+                }
+            }
+
+            videoA.style.filter = filterStyle;
+        }
+
+        function triggerLoseSequence() {
+            gameState = 'playing_b';
+            
+            // 清除 JS 設定的 filter 以便讓 CSS 的 blur 轉場接手
+            videoA.style.filter = '';
+
+            // 播放影片B
+            videoB.play().catch(e => console.log("影片B播放失敗:", e));
+            
+            // 執行模糊交叉淡入淡出轉場 (Crossfade Blur)
+            videoA.classList.remove('blur-visible');
+            videoA.classList.add('blur-hidden');
+            
+            videoB.classList.remove('blur-hidden');
+            videoB.classList.add('blur-visible');
+            
+            // 等待 CSS 轉場時間 (1.2秒) 完成後，再將影片 A 暫停以節省資源
+            setTimeout(() => {
+                videoA.pause();
+            }, 1200);
+            
+            // 監聽影片B播放完畢事件，播完才顯示失敗畫面
+            videoB.onended = () => {
+                loseGame();
+            };
+        }
+
+        function loseGame() {
+            isPlaying = false;
+            gameOverScreen.classList.remove('hidden');
+        }
+
+        function winGame() {
+            isPlaying = false;
+            gameState = 'won';
+            videoA.pause(); // 確保勝利時影片暫停
+            gazeWarning.style.opacity = '0'; // 確保隱藏警告
+            progressBar.style.width = '100%'; // 確保進度條全滿
+            successScreen.classList.remove('hidden');
+        }
+
+    </script>
+</body>
+</html>

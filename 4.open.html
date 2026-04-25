@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>叩門的恩典</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 引入 MediaPipe Hands 手部追蹤庫 -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@300;400;700&display=swap');
+
+        body {
+            font-family: 'Noto Serif TC', serif;
+            background-color: #000;
+            overflow: hidden;
+            margin: 0;
+            padding: 0;
+            color: white;
+        }
+
+        /* 呼吸光暈引導 */
+        @keyframes pulse-light {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; text-shadow: 0 0 10px rgba(255, 255, 255, 0.8); }
+        }
+        .pulse-hint {
+            animation: pulse-light 3s infinite;
+        }
+
+        .fade-in { animation: fadeIn 1.5s ease-in forwards; }
+        .fade-out { animation: fadeOut 1s ease-out forwards; pointer-events: none; }
+        
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+
+        /* 隱藏攝影機原生畫面，只顯示 Canvas 繪製的骨架 */
+        .input_video { display: none; }
+
+        /* 自訂滾動條 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(251, 191, 36, 0.3); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(251, 191, 36, 0.6); }
+    </style>
+</head>
+<!-- 改用 h-[100dvh] 動態高度，解決手機瀏覽器網址列遮擋問題 -->
+<body class="h-[100dvh] w-screen relative flex flex-col items-center justify-center select-none bg-black overflow-hidden">
+
+    <!-- 全域固定：返回首頁按鈕 -->
+    <a href="index.html" class="fixed top-4 left-4 md:top-6 md:left-6 z-[100] flex items-center gap-2 px-4 py-2 bg-black/40 border border-gray-600/50 rounded-full text-gray-300 hover:text-white hover:bg-black/70 hover:border-gray-400 transition-all duration-300 backdrop-blur-md text-sm tracking-widest shadow-lg group">
+        <span class="group-hover:-translate-x-1 transition-transform">⇦</span>
+        <span>返回首頁</span>
+    </a>
+
+    <!-- 第一階段：開始體驗按鈕與詳細說明 (分欄設計，避免文字蓋住名畫) -->
+    <div id="start-screen" class="absolute inset-0 z-50 flex flex-col md:flex-row bg-black overflow-hidden">
+        
+        <!-- 左側 / 上方：名畫專屬展示區 -->
+        <div class="w-full h-[40dvh] md:w-[45%] md:h-full relative flex-shrink-0 bg-[#0a0604]">
+            <div class="absolute inset-0 bg-contain bg-no-repeat bg-center md:bg-[position:85%_center]" style="background-image: url('doc/The Light of the World.jpeg');"></div>
+            <!-- 邊緣漸層過渡，讓畫面柔和融入黑色背景 -->
+            <div class="absolute inset-x-0 bottom-0 h-16 md:h-24 bg-gradient-to-t from-black to-transparent md:hidden"></div>
+            <div class="absolute inset-y-0 right-0 w-24 bg-gradient-to-l from-black to-transparent hidden md:block"></div>
+        </div>
+
+        <!-- 右側 / 下方：滾動說明區 (加入 pb-32 確保底部按鈕不會被裁切) -->
+        <div class="w-full h-[60dvh] md:w-[55%] md:h-full overflow-y-auto flex flex-col items-center md:items-start px-5 md:pl-4 md:pr-16 py-6 pb-32 md:py-16 bg-black relative">
+            <div class="max-w-xl mx-auto md:ml-0 w-full flex flex-col items-center md:items-start pt-4 md:pt-0">
+                
+                <!-- 標題 -->
+                <h1 class="text-3xl md:text-5xl mb-6 md:mb-8 font-bold text-amber-500 tracking-[0.2em] text-center md:text-left drop-shadow-lg">
+                    叩門的恩典
+                </h1>
+                
+                <!-- 緣由說明區塊 -->
+                <div class="bg-white/5 border border-amber-900/40 rounded-2xl p-6 md:p-10 mb-8 shadow-2xl backdrop-blur-md relative overflow-hidden w-full">
+                    <!-- 裝飾用光暈 -->
+                    <div class="absolute -top-20 -right-20 w-40 h-40 bg-amber-600/10 blur-[50px] rounded-full pointer-events-none"></div>
+                    
+                    <h2 class="text-xl md:text-2xl text-amber-400 mb-6 text-center md:text-left tracking-widest border-b border-amber-900/50 pb-4 font-medium">
+                        為什麼要叩門？
+                    </h2>
+                    
+                    <div class="space-y-5 text-gray-300 leading-[1.8em] text-justify font-light text-sm md:text-lg">
+                        <p>
+                            在《啟示錄》3章20節中，耶穌說：「<strong class="text-amber-200 font-normal">看哪，我站在門外叩門，若有聽見我聲音就開門的，我要進到他那裡去...</strong>」
+                        </p>
+                        
+                        <p>
+                            這扇緊閉的古老木門，象徵著我們每個人的「心門」。
+                        </p>
+                        
+                        <p>
+                            在著名的基督教藝術《世界之光》中，畫家描繪了耶穌提著燈，站在一扇長滿荊棘的門前輕輕叩門。這幅畫有一個極為深刻的細節：<strong class="text-amber-200 font-normal">這扇門沒有外面的把手</strong>。
+                        </p>
+                        
+                        <p>
+                            因為這是心靈的門——造物主賜予了我們全然的自由意志。祂擁有創造宇宙的大能，卻選擇極其溫柔地站在門外耐心等待，從不強行闖入。唯有當門內的人願意主動卸下防備，親自從裡面將門敞開，真理與救贖的光芒才能真正照進生命之中。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- 權限提示 -->
+                <p class="text-gray-400 mb-8 text-center md:text-left leading-relaxed text-xs md:text-sm tracking-wide bg-white/5 py-3 px-5 rounded-lg border border-gray-800 w-full backdrop-blur-sm">
+                    為了進行互動，本體驗需要使用您的 <strong class="text-amber-100">相機</strong> 與 <strong class="text-amber-100">麥克風</strong>。<br>
+                    <span class="opacity-70">（影像與聲音僅用於您的裝置本機端進行即時動作辨識，絕不會被儲存或上傳）</span>
+                </p>
+                
+                <!-- 開始按鈕 -->
+                <button id="start-btn" class="w-full md:w-auto px-10 py-4 mb-8 bg-amber-700 hover:bg-amber-600 text-white rounded-full text-lg tracking-[0.15em] transition-all duration-300 shadow-[0_0_20px_rgba(180,83,9,0.3)] hover:shadow-[0_0_30px_rgba(180,83,9,0.6)] transform hover:-translate-y-1 border border-amber-500/50">
+                    我願敞開心門
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 第二階段：互動主畫面 (背景圖 + 偵測) -->
+    <!-- 背景圖片：讀取本機的世界之光名畫 -->
+    <div id="main-scene" class="absolute inset-0 bg-cover md:bg-contain bg-no-repeat bg-center opacity-0 transition-opacity duration-1000 z-10 hidden" 
+         style="background-image: url('doc/door.png'); cursor: pointer;">
+        <div class="absolute inset-0 bg-black/50 pointer-events-none"></div> <!-- 圖片暗化遮罩，增加神秘感並凸顯文字 -->
+
+        <!-- 右上角(手機) / 右下角(電腦)：相機預覽 -->
+        <!-- 放大手機版的寬度為 w-36 (原本是 w-24) -->
+        <div class="absolute top-16 right-4 md:top-auto md:bottom-6 md:right-6 w-36 md:w-48 aspect-video bg-black border border-gray-700 rounded-lg overflow-hidden shadow-2xl opacity-80 hover:opacity-100 transition-opacity z-20 pointer-events-none">
+            <!-- 關鍵修復：必須加上 autoplay 和 muted，否則 iOS/Android 會凍結相機畫面 -->
+            <video class="input_video" autoplay muted playsinline></video>
+            <!-- 加上 transform -scale-x-100 來水平翻轉 Canvas 達到鏡像效果，這不影響手勢判斷 -->
+            <canvas class="output_canvas w-full h-full transform -scale-x-100" width="320" height="240"></canvas>
+            <div id="cam-status" class="absolute bottom-1 right-1 text-[8px] md:text-[10px] text-red-500 bg-black/80 px-1 md:px-2 py-0.5 rounded backdrop-blur-sm">相機啟動中...</div>
+        </div>
+
+        <!-- 中間下方：互動提示與語音回饋 -->
+        <div class="absolute bottom-12 md:bottom-24 left-0 right-0 flex flex-col items-center px-4 pointer-events-none z-10">
+            <p class="text-lg md:text-3xl text-white mb-4 md:mb-6 pulse-hint tracking-[0.15em] text-center shadow-black drop-shadow-2xl font-bold">
+                請對著鏡頭做出「握拳叩門」動作<br>
+                <span class="text-sm md:text-xl font-normal text-amber-100 mt-2 block opacity-80">(或輕觸螢幕叩門 / 說出：「主啊，我願祢來」)</span>
+            </p>
+            <div class="flex items-center gap-2 md:gap-3 px-4 md:px-5 py-2 md:py-2.5 bg-black/70 rounded-full border border-gray-600 backdrop-blur-md">
+                <div id="mic-indicator" class="w-2.5 h-2.5 md:w-3 md:h-3 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]"></div>
+                <span id="speech-feedback" class="text-xs md:text-base text-yellow-300 tracking-widest font-light">正在聆聽您的心聲...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 第三階段：影片播放區 (隱藏) -->
+    <!-- 請將 src 替換為您的 "影片A" 的網址 -->
+    <div id="video-scene" class="absolute inset-0 bg-black z-30 hidden opacity-0 transition-opacity duration-1000">
+        <!-- 加入 playsinline 與 webkit-playsinline 以支援手機播放 -->
+        <video id="videoA" class="w-full h-full object-cover md:object-contain" playsinline webkit-playsinline>
+            <!-- 預設測試影片，建議更換為福音影片 -->
+            <source src="doc/door.mp4" type="video/mp4">
+            您的瀏覽器不支援影片播放。
+        </video>
+    </div>
+
+    <!-- 第四階段：豐富結尾說明頁 (隱藏) -->
+    <div id="ending-scene" class="absolute inset-0 bg-[#0a0604] z-40 hidden opacity-0 transition-opacity duration-[2000ms] overflow-y-auto bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-amber-900/20 to-black">
+       <div class="min-h-full flex flex-col items-center justify-center p-6 md:p-12 text-center max-w-4xl mx-auto py-24">
+            
+            <!-- 經文核心 -->
+            <h1 class="text-2xl md:text-5xl text-amber-500 font-bold mb-8 drop-shadow-sm leading-tight tracking-widest mt-8">
+                「看哪，我站在門外叩門」
+            </h1>
+            <p class="text-xl md:text-2xl text-amber-100/90 mb-4 font-medium leading-loose tracking-wide">
+                若有聽見我聲音就開門的，<br>我要進到他那裡去，
+            </p>
+            <p class="text-xl md:text-2xl text-amber-100/90 mb-8 font-medium tracking-wide">
+                我與他，他與我一同坐席。
+            </p>
+            <p class="text-sm text-amber-600/80 mb-10 tracking-[0.2em]">—— 啟示錄 3:20 ——</p>
+            
+            <div class="w-full h-px bg-gradient-to-r from-transparent via-amber-700/50 to-transparent mb-10"></div>
+            
+            <!-- 深刻的信仰說明 -->
+            <div class="text-left md:text-center text-gray-300 space-y-6 text-base md:text-lg leading-relaxed font-light mb-12 px-4 md:px-12">
+                <p>
+                    當這扇心門為祂敞開的瞬間，生命中那些曾經封閉、孤單與幽暗的角落，便迎來了<strong class="text-amber-400 font-normal">真理與愛的真光</strong>。
+                </p>
+                <p>
+                    主耶穌的叩門，從來不是居高臨下的命令，而是極其溫柔的邀請。祂渴望與我們建立最親密的關係——正如經文所承諾的<strong class="text-amber-400 font-normal">「一同坐席」</strong>。在猶太文化中，一同吃飯象徵著完全的接納、無條件的饒恕與最深厚的友誼。
+                </p>
+                <p>
+                    這份救贖的恩典，不需要我們先變得完美無瑕才能獲得。只要我們願意像剛剛那樣，用微小的信心做出回應，發出「主啊，我願祢來」的呼求，祂就必成就祂的應許，走進我們的生命中，作我們永恆的倚靠與平安的王。
+                </p>
+            </div>
+            
+            <!-- 邀請的禱告 -->
+            <div class="p-8 md:p-12 bg-white/5 border border-amber-900/40 rounded-3xl w-full shadow-2xl backdrop-blur-md relative overflow-hidden text-left md:text-center">
+                <!-- 裝飾用光暈 -->
+                <div class="absolute -top-32 -left-32 w-64 h-64 bg-amber-600/10 blur-[60px] rounded-full pointer-events-none"></div>
+                
+                <h3 class="text-xl md:text-2xl text-amber-500 mb-8 tracking-[0.15em] font-bold border-b border-amber-900/50 pb-4 inline-block">
+                    回應恩典的禱告
+                </h3>
+                
+                <div class="text-gray-200 italic leading-loose text-lg md:text-xl font-light space-y-2">
+                    <p>「親愛的主耶穌，</p>
+                    <p>謝謝祢以無盡的耐心與慈愛，在我心門外等候。</p>
+                    <p>我承認我有時會將自己封閉在孤單與軟弱之中，</p>
+                    <p>但此刻，我願意真實地向祢敞開大門。</p>
+                    <br>
+                    <p>求祢的真光照亮我的生命，洗淨我的過犯。</p>
+                    <p>我邀請祢進入我的心，引導我未來的道路，</p>
+                    <p>讓我能與祢一同坐席，享受那份永不隔絕的愛與平安。</p>
+                    <br>
+                    <p>奉主耶穌基督得勝的名求，阿們。」</p>
+                </div>
+            </div>
+            
+            <!-- 按鈕操作區 -->
+            <div class="mt-12 md:mt-16 flex flex-col sm:flex-row gap-4 md:gap-6 justify-center w-full px-4">
+                <!-- 返回首頁按鈕 -->
+                <a href="index.html" class="w-full sm:w-auto px-10 py-4 border border-amber-700/50 text-amber-500 hover:text-amber-400 hover:border-amber-400 rounded-full transition-all duration-300 text-sm tracking-[0.2em] bg-amber-900/20 hover:bg-amber-900/40 shadow-lg hover:shadow-amber-900/50 inline-block text-center">
+                    返回首頁
+                </a>
+                
+                <!-- 再次體驗按鈕 -->
+                <button onclick="location.reload()" class="w-full sm:w-auto px-10 py-4 border border-gray-600 text-gray-400 hover:text-white hover:border-white rounded-full transition-all duration-300 text-sm tracking-[0.2em] bg-white/5 hover:bg-white/10 shadow-lg hover:shadow-white/10 text-center">
+                    再次體驗
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 狀態控制變數 ---
+        let isTriggered = false;
+        let fistHoldFrames = 0; // 紀錄連續握拳的幀數，避免誤觸
+
+        // --- DOM 元素 ---
+        const startScreen = document.getElementById('start-screen');
+        const startBtn = document.getElementById('start-btn');
+        const mainScene = document.getElementById('main-scene');
+        const videoScene = document.getElementById('video-scene');
+        const endingScene = document.getElementById('ending-scene');
+        const videoElement = document.getElementById('videoA');
+        const speechFeedback = document.getElementById('speech-feedback');
+        const camStatus = document.getElementById('cam-status');
+        
+        // 攝影機相關
+        const videoCtx = document.querySelector('.input_video');
+        const canvasElement = document.querySelector('.output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+
+        // --- 核心觸發邏輯 (影片播放) ---
+        function triggerRedemption() {
+            if (isTriggered) return;
+            isTriggered = true;
+
+            // 1. 隱藏主場景，停止語音
+            mainScene.classList.add('fade-out');
+            if (window.speechRec) window.speechRec.stop();
+
+            // 2. 顯示影片並準備播放
+            videoScene.classList.remove('hidden');
+            setTimeout(() => {
+                videoScene.classList.add('opacity-100');
+            }, 50);
+
+            // 處理手機瀏覽器可能阻擋非手動觸發播放的情況
+            let playPromise = videoElement.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(e => {
+                    console.log("自動播放被阻擋，顯示手動播放按鈕:", e);
+                    
+                    // 動態建立手動播放的覆蓋層 (防呆機制)
+                    const playOverlay = document.createElement('div');
+                    playOverlay.className = "absolute inset-0 z-50 flex items-center justify-center bg-black/80 cursor-pointer flex-col gap-4";
+                    playOverlay.innerHTML = `
+                        <div class="w-20 h-20 rounded-full bg-amber-600/90 flex items-center justify-center pl-2 shadow-[0_0_30px_rgba(217,119,6,0.5)] border border-amber-400">
+                            <svg class="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                        </div>
+                        <p class="text-amber-400 tracking-widest text-lg font-bold">點擊畫面繼續</p>
+                    `;
+                    videoScene.appendChild(playOverlay);
+                    
+                    playOverlay.addEventListener('click', () => {
+                        videoElement.play();
+                        playOverlay.remove();
+                    });
+                });
+            }
+        }
+
+        // --- 影片結束邏輯 ---
+        videoElement.addEventListener('ended', () => {
+            // 隱藏影片
+            videoScene.classList.remove('opacity-100');
+            videoScene.classList.add('fade-out');
+            
+            // 顯示結尾畫面
+            endingScene.classList.remove('hidden');
+            setTimeout(() => {
+                endingScene.classList.add('opacity-100');
+            }, 1000);
+        });
+
+        // --- 1. 語音辨識設定 (Web Speech API) ---
+        function initSpeechRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                speechFeedback.textContent = "瀏覽器不支援語音辨識，請使用手勢。";
+                return;
+            }
+
+            const recognition = new SpeechRecognition();
+            window.speechRec = recognition; // 存為全域以利控制
+            recognition.lang = 'zh-TW';
+            recognition.continuous = true;
+            recognition.interimResults = true;
+
+            recognition.onresult = (event) => {
+                if (isTriggered) return;
+                
+                let transcript = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    transcript += event.results[i][0].transcript;
+                }
+                
+                const currentText = transcript.trim();
+                if (currentText) {
+                    speechFeedback.textContent = `聽見：「${currentText}」`;
+                    
+                    // 驗證關鍵字
+                    const targetPhrases = ['主啊我願你來', '主啊我願祢來', '主啊我願意', '主阿我願你來', '我願你來'];
+                    const cleanText = currentText.replace(/[，、。！\s]/g, '');
+
+                    if (targetPhrases.some(phrase => cleanText.includes(phrase))) {
+                        speechFeedback.textContent = "「我聽見了...」";
+                        speechFeedback.classList.add('text-amber-400', 'font-bold');
+                        triggerRedemption();
+                    }
+                }
+            };
+
+            recognition.onerror = (e) => {
+                console.warn("語音辨識錯誤:", e.error);
+                if(e.error === 'not-allowed') speechFeedback.textContent = "麥克風權限被拒絕。";
+            };
+
+            recognition.onend = () => {
+                if (!isTriggered) {
+                    try { recognition.start(); } catch(e){} // 嘗試重啟保持聆聽
+                }
+            };
+
+            try { recognition.start(); } catch(e){}
+        }
+
+        // --- 2. 手勢辨識設定 (MediaPipe Hands) ---
+        // 判斷是否為「握拳/敲門」手勢的演算法
+        function isFist(landmarks) {
+            // 計算兩點距離
+            const dist = (p1, p2) => Math.hypot(p1.x - p2.x, p1.y - p2.y);
+            const wrist = landmarks[0];
+            
+            // 判斷手指是否彎曲：指尖(8,12,16,20)到手腕的距離，是否小於該手指掌指關節(5,9,13,17)到手腕的距離
+            const isCurled = (tip, mcp) => dist(wrist, landmarks[tip]) < dist(wrist, landmarks[mcp]);
+            
+            // 檢查食指、中指、無名指、小指是否都處於捲曲狀態
+            const indexCurled = isCurled(8, 5);
+            const middleCurled = isCurled(12, 9);
+            const ringCurled = isCurled(16, 13);
+            const pinkyCurled = isCurled(20, 17);
+
+            return indexCurled && middleCurled && ringCurled && pinkyCurled;
+        }
+
+        function onResults(results) {
+            if (isTriggered) return;
+
+            // 繪製預覽畫面 (讓使用者知道相機有抓到)
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                camStatus.textContent = "偵測到手部";
+                camStatus.className = "absolute bottom-1 right-1 text-[10px] text-green-400 bg-black/80 px-2 py-0.5 rounded backdrop-blur-sm";
+
+                for (const landmarks of results.multiHandLandmarks) {
+                    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: 'rgba(251, 191, 36, 0.8)', lineWidth: 2});
+                    drawLandmarks(canvasCtx, landmarks, {color: 'rgba(255, 255, 255, 0.5)', lineWidth: 1, radius: 2});
+
+                    // 檢查是否為握拳動作
+                    if (isFist(landmarks)) {
+                        fistHoldFrames++;
+                        // 連續幾幀判定為握拳，即視為敲門動作以防誤判
+                        if (fistHoldFrames > 12) {
+                            speechFeedback.textContent = "感受到您的叩門！";
+                            triggerRedemption();
+                        }
+                    } else {
+                        fistHoldFrames = 0; // 重置
+                    }
+                }
+            } else {
+                camStatus.textContent = "尋找手部...";
+                camStatus.className = "absolute bottom-1 right-1 text-[10px] text-yellow-500 bg-black/80 px-2 py-0.5 rounded backdrop-blur-sm";
+                fistHoldFrames = 0;
+            }
+            canvasCtx.restore();
+        }
+
+        function initMediaPipe() {
+            const hands = new Hands({locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+            }});
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+            hands.onResults(onResults);
+
+            const camera = new Camera(videoCtx, {
+                onFrame: async () => {
+                    await hands.send({image: videoCtx});
+                },
+                width: 320,
+                height: 240
+            });
+            camera.start()
+                .then(() => { camStatus.textContent = "尋找手部..."; })
+                .catch(err => {
+                    console.error(err);
+                    camStatus.textContent = "相機啟動失敗";
+                    camStatus.className = "absolute bottom-1 right-1 text-[10px] text-red-500 bg-black/80 px-2 py-0.5 rounded backdrop-blur-sm";
+                });
+        }
+
+        // --- 點擊開始按鈕流程 ---
+        startBtn.addEventListener('click', () => {
+            // 只做載入，不強制 play()，避免手機瀏覽器誤判直接播完影片
+            videoElement.load();
+
+            // 隱藏開始畫面
+            startScreen.classList.add('fade-out');
+            
+            // 顯示主畫面
+            mainScene.classList.remove('hidden');
+            // 使用 setTimeout 確保 display: block 生效後再執行 opacity 漸變
+            setTimeout(() => {
+                mainScene.style.opacity = '1';
+            }, 50);
+
+            // 請求權限並啟動 AI 與語音
+            initMediaPipe();
+            initSpeechRecognition();
+        });
+
+        // --- 觸控叩門 (防呆與手機備用方案) ---
+        let tapCount = 0;
+        mainScene.addEventListener('click', (e) => {
+            // 若點擊到返回按鈕或其他連結，則不處理
+            if (e.target.closest('a') || isTriggered) return;
+            
+            tapCount++;
+            
+            // 視覺回饋：讓畫面稍微閃爍一下
+            mainScene.style.filter = "brightness(1.5)";
+            setTimeout(() => { mainScene.style.filter = "brightness(1)"; }, 100);
+
+            if (tapCount < 3) {
+                speechFeedback.textContent = `叩門聲 (${tapCount}/3)...`;
+            } else {
+                speechFeedback.textContent = "感受到您的叩門！";
+                triggerRedemption();
+            }
+        });
+
+    </script>
+</body>
+</html>

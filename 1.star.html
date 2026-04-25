@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>來自星空的信</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 新增：引入 html2canvas 截圖套件 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;700&family=Noto+Serif+TC:wght@400;600;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            color: #fff;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+        
+        .serif { font-family: 'Noto Serif TC', serif; }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .paper-texture {
+            background-color: #fdfaf0;
+            background-image: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='0.05'/%3E%3C/svg%3E");
+            color: #2d2a26;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+        }
+
+        @keyframes pulse-soft {
+            0%, 100% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.05); opacity: 1; }
+        }
+        .animate-pulse-soft { animation: pulse-soft 2s infinite ease-in-out; }
+
+        @keyframes float-up-down {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        .animate-float { animation: float-up-down 3s infinite ease-in-out; }
+        
+        .sky-bg {
+            background: linear-gradient(to bottom, #020111 10%, #150a30 60%, #20124d 100%);
+        }
+
+        canvas { outline: none; -webkit-tap-highlight-color: transparent; }
+        
+        /* 鏡像相機畫面 */
+        #video-element {
+            transform: scaleX(-1);
+            object-fit: cover;
+        }
+    </style>
+</head>
+<body class="w-screen h-screen relative flex items-center justify-center">
+
+    <!-- 全局返回首頁按鈕 -->
+    <a href="index.html" class="absolute top-4 left-4 z-[100] px-4 py-2 bg-black/30 hover:bg-black/50 text-white rounded-full backdrop-blur-sm border border-white/20 transition-all duration-300 flex items-center gap-2 text-sm shadow-lg pointer-events-auto">
+        <span>← 返回首頁</span>
+    </a>
+
+    <!-- 場景 1：首頁與權限請求 -->
+    <div id="scene-intro" class="absolute inset-0 flex flex-col items-center justify-center z-50 transition-opacity duration-1000 glass-panel opacity-100 pointer-events-auto overflow-y-auto pt-16 pb-8">
+        <h1 class="text-4xl md:text-5xl font-bold mb-6 tracking-wider serif text-white text-center drop-shadow-lg mt-8">遇見星空的祝福</h1>
+        
+        <!-- 新增：說明緣由區塊 (加寬並優化字體大小) -->
+        <div class="max-w-3xl px-6 mb-8 text-center text-gray-200 leading-relaxed bg-black/20 p-6 md:p-8 rounded-2xl border border-white/10 backdrop-blur-sm">
+            <p class="mb-4 text-lg md:text-xl serif text-blue-200">
+                「在繁忙的生活中，我們常忘了停下腳步，在天父的愛中尋找安息。」
+            </p>
+            <p class="text-base md:text-lg text-gray-300">
+                這是一個為你預備的安靜時刻。透過簡單的互動，幫助你沉澱思緒。當你願意花一點時間揮揮手，就像是卸下生活的重擔，向天父敞開心扉。這份安靜等候的耐心，將化為夜空中的繁星，而每一顆星，都藏著祂要親自對你說的、充滿恩典與鼓勵的話語。
+            </p>
+        </div>
+
+        <p class="text-lg md:text-xl text-white mb-10 text-center max-w-md px-6 leading-relaxed font-bold">
+            我們將開啟您的相機。<br>請準備好，對著鏡頭揮揮手，<br>累積滿滿的信心，奇蹟就會出現。
+        </p>
+        <button id="btn-start" class="px-8 py-4 bg-white/20 hover:bg-white/30 text-white rounded-full text-xl transition-all duration-300 border border-white/50 hover:scale-105 shadow-[0_0_15px_rgba(255,255,255,0.3)] mb-8">
+            準備好了
+        </button>
+        <p id="error-msg" class="text-red-400 mt-4 text-sm hidden">無法存取相機，請確認權限是否開啟。</p>
+    </div>
+
+    <!-- 場景 2：相機畫面與揮手偵測 -->
+    <div id="scene-camera" class="absolute inset-0 z-40 opacity-0 pointer-events-none transition-opacity duration-1000 flex flex-col items-center justify-end pb-16 md:pb-24">
+        <video id="video-element" class="absolute inset-0 w-full h-full" autoplay playsinline muted></video>
+        <canvas id="motion-canvas" class="hidden"></canvas>
+        <div class="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent"></div>
+
+        <div class="relative z-10 w-full max-w-md px-6 flex flex-col items-center">
+            <div id="wave-icon" class="text-5xl mb-4 animate-pulse-soft">👋</div>
+            <h2 id="instruction-text" class="text-2xl md:text-3xl font-bold mb-6 text-white drop-shadow-md text-center">請對著鏡頭持續揮手</h2>
+            
+            <div class="w-full h-4 bg-gray-700/50 rounded-full overflow-hidden backdrop-blur-sm border border-gray-500/50">
+                <div id="progress-fill" class="h-full bg-gradient-to-r from-blue-400 to-purple-500 w-0 transition-all duration-300 ease-out shadow-[0_0_10px_rgba(168,85,247,0.8)]"></div>
+            </div>
+            <p class="mt-3 text-sm text-gray-300 font-light tracking-widest">信心收集中...</p>
+        </div>
+    </div>
+
+    <!-- 場景 3：互動星空 -->
+    <div id="scene-sky" class="absolute inset-0 z-30 opacity-0 pointer-events-none transition-opacity duration-[2000ms] sky-bg flex flex-col items-center justify-center">
+        <canvas id="star-canvas" class="absolute inset-0 pointer-events-auto cursor-default"></canvas>
+        <div id="click-hint" class="relative z-10 text-white text-lg md:text-xl tracking-widest animate-float pointer-events-none drop-shadow-lg opacity-0 transition-opacity duration-1000 delay-1000 bg-black/30 px-6 py-2 rounded-full backdrop-blur-sm border border-white/20">
+            ✨ 點擊明亮的星辰，開啟天父的信 ✨
+        </div>
+    </div>
+
+    <!-- 場景 4：天父的信 Modal -->
+    <div id="scene-letter" class="fixed inset-0 z-50 opacity-0 pointer-events-none transition-opacity duration-1000 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+        <div class="paper-texture w-full max-w-2xl max-h-[75vh] md:max-h-[85vh] overflow-y-auto overscroll-contain rounded-md p-6 pb-12 md:p-12 relative transform transition-transform duration-700 scale-95 shadow-2xl" id="letter-container">
+            <button id="btn-close-letter" class="absolute top-2 right-2 md:top-4 md:right-4 text-gray-500 hover:text-gray-800 transition-colors p-2 text-2xl z-10 w-10 h-10 flex items-center justify-center rounded-full bg-[#fdfaf0]/80 backdrop-blur-sm shadow-sm">
+                ✕
+            </button>
+            
+            <h2 id="letter-title" class="text-3xl md:text-4xl serif mb-6 md:mb-8 mt-4 md:mt-0 text-center text-[#8b5a2b] font-bold border-b border-[#8b5a2b]/30 pb-4">
+                致我親愛的孩子
+            </h2>
+            
+            <div id="letter-content" class="space-y-6 text-base md:text-lg leading-loose serif text-justify text-gray-800">
+                <!-- 動態插入內容 -->
+            </div>
+
+            <div class="mt-10 md:mt-12 text-right serif text-xl md:text-2xl text-[#8b5a2b] italic pb-4">
+                永遠愛你的，<br>
+                <span class="font-bold">天父</span>
+            </div>
+
+            <!-- 修改：下載圖片按鈕 -->
+            <div class="mt-6 pt-6 border-t border-[#8b5a2b]/20 flex justify-center">
+                <button id="btn-download-img" class="px-6 py-2.5 bg-[#8b5a2b] hover:bg-[#6e4620] text-white rounded-full flex items-center gap-2 transition-all duration-300 shadow-md hover:shadow-lg hover:-translate-y-1 text-sm md:text-base font-sans">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                        <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/>
+                    </svg>
+                    儲存成圖片
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* =========================================
+           信件資料庫 (Templates)
+           ========================================= */
+        const letterTemplates = [
+            // === 第一部分：職場、目標與壓力 (10則) ===
+            {
+                title: "致在職場中感到迷茫的你",
+                content: [
+                    "你是否有過這樣的感覺——明明每天都很忙碌，卻不知道自己在為何而努力？你的貢獻、你的付出，在這個龐大的組織裡，好像一粒沙落入大海，毫無聲息。",
+                    "<strong class='text-[#8b5a2b]'>「你們所做的一切，都要從心裡做，像是給主做的，不是給人做的。」（歌羅西書 3:23）</strong>",
+                    "但我告訴你：你在職場中的每一份誠實與認真，都有永恆的見證者。那些被你認真對待的細節，那些你靜靜付出的努力，我都看見了。",
+                    "你的工作不只是謀生的工具，更是你發光的舞台。不要因為眼前的混沌而放棄，因為方向不清楚的時候，往往是轉機即將出現的前夕。繼續踏實地走，前方有光在等你。"
+                ]
+            },
+            {
+                title: "致面對職場壓力的你",
+                content: [
+                    "截止日期、績效考核、主管的眼光……這些壓力像一座無形的山，壓得你喘不過氣。你已經夠努力了，但好像怎麼都不夠。",
+                    "<strong class='text-[#8b5a2b]'>「我靠著那加給我力量的，凡事都能做。」（腓立比書 4:13）</strong>",
+                    "壓力不是你的敵人，它是在告訴你：你正在做一件有分量的事。沒有人會為一件無關緊要的事情感到壓力。你所扛的重量，說明了你的重要性。",
+                    "但我不希望你只是撐著、熬著。我希望你能在壓力中找到那個支撐你的核心——不是完美的表現，而是你內在真實的力量。深呼吸，你做得到的。"
+                ]
+            },
+            {
+                title: "致與同事關係緊張的你",
+                content: [
+                    "職場中，總有那麼幾個讓你覺得難以共處的人。也許是爭功、也許是誤解，也許只是個性不合。你盡力了，但關係還是裂著縫。",
+                    "<strong class='text-[#8b5a2b]'>「你們要彼此相愛，像我愛你們一樣。」（約翰福音 15:12）</strong>",
+                    "愛不是軟弱，也不是委屈自己。愛是在理解對方的有限之後，仍然選擇善待彼此。有時候，我們無法改變他人，但我們可以改變自己面對的方式。",
+                    "放下那份憤怒或委屈，不是為了對方，是為了讓自己更自由。你值得在一個平靜的心境中工作，而那份平靜，可以從你的選擇開始。"
+                ]
+            },
+            {
+                title: "致面臨職涯轉銜期的你",
+                content: [
+                    "當下的停頓或改變，可能帶走的不只是穩定的收入，更是你對自我價值的確信。你開始懷疑自己：是不是不夠好？接下來該往哪裡去？",
+                    "<strong class='text-[#8b5a2b]'>「因為我知道我向你們所懷的意念是賜平安的意念，不是降災禍的意念，要叫你們末後有指望。」（耶利米書 29:11）</strong>",
+                    "環境的變動，不等於失去你這個人的價值。你的才能、你的經驗、你的生命力，沒有任何一個職位有資格定義你的全部。",
+                    "這個過渡期，是讓你重新思考——你真正想要的是什麼？未來的路不是被堵死了，而是有一扇新的門，正在你前方悄悄打開。給自己一些時間，你會找到那扇門的。"
+                ]
+            },
+            {
+                title: "致剛承擔重任卻感到惶恐的你",
+                content: [
+                    "恭喜你承擔了更大的責任！但慶賀之後，你心中的聲音卻問：我真的準備好了嗎？我夠格嗎？萬一讓大家失望怎麼辦？",
+                    "<strong class='text-[#8b5a2b]'>「你當剛強壯膽！不要懼怕，也不要驚惶；因為你無論往哪裡去，耶和華你的神必與你同在。」（約書亞記 1:9）</strong>",
+                    "這份惶恐，其實是你對責任認真的證明。一個完全不在乎的人，不會感到惶恐。正因為你在乎，你才會不斷成長、進步。",
+                    "帶著謙遜與學習的心，走進這個新挑戰。你不需要表現得完美，你只需要展現真實。周圍的人信任你，是因為看見了你的潛力與特質。"
+                ]
+            },
+            {
+                title: "致在職場默默付出的你",
+                content: [
+                    "你是那個不爭功、不搶話，卻在每個細節裡認真把關的人。別人看不見，或者看見了卻沒說。你有時候會想，這樣值得嗎？",
+                    "<strong class='text-[#8b5a2b]'>「那忠心良善的僕人……你既在不多的事上有忠心，我要把許多事派你管理。」（馬太福音 25:21）</strong>",
+                    "你的忠心，有比人更大的見證者在記錄。每一份安靜的努力，都在積累一份看不見的財富。你不是在白費力氣，你是在打一個看得見未來的基礎。",
+                    "繼續做那個認真、誠實、用心的人。這個世界需要更多像你這樣的人。你的安靜，就是你最強大的力量。"
+                ]
+            },
+            {
+                title: "致正在開創事業的你",
+                content: [
+                    "你選擇了一條充滿挑戰的路。起步時的孤單、資源的匱乏、環境的不確定……每一天都是新的挑戰，每一天你都在問：我的堅持是對的嗎？",
+                    "<strong class='text-[#8b5a2b]'>「你所做的，要交託耶和華，你所謀的，就必成立。」（箴言 16:3）</strong>",
+                    "開創不只是在做一門生意，你是在把你的願景變成現實。那份勇氣，本身就值得被尊敬。挫折不是終點，而是讓你更了解市場、更了解自己的過程。",
+                    "不要因為暫時的困難而懷疑你的初衷。把你的計劃交託給智慧的源頭，讓它引導你。你不是一個人在走這條路。"
+                ]
+            },
+            {
+                title: "致職場中遭受委屈的你",
+                content: [
+                    "你明明做對了，卻被誤解；你明明付出了，卻被忽視；你明明說了真話，卻受到冷落。這份不公，讓你又憤怒又灰心。",
+                    "<strong class='text-[#8b5a2b]'>「你們不要自己伸冤，寧可讓步，聽憑主怒；因為主說，伸冤在我，我必報應。」（羅馬書 12:19）</strong>",
+                    "一時的委屈，無法定義你的價值。那些不公的評價，無法遮蓋你的本質。有一雙眼睛，看見你的辛勞，也看見你的正直。",
+                    "你可以選擇守住底線，那是智慧，不是懦弱。無論環境如何，不要讓別人的錯誤把你改造成一個你不認識的自己。你的價值，不建立在別人的評價上。"
+                ]
+            },
+            {
+                title: "致追求目標卻屢屢受挫的你",
+                content: [
+                    "你嘗試了多少次、投入了多少心力，卻換來一次次的婉拒或失敗？每一次的挫敗，都像一記重擊，打在你最脆弱的信心上。",
+                    "<strong class='text-[#8b5a2b]'>「我們在患難中也是歡歡喜喜的；因為知道患難生忍耐，忍耐生老練，老練生盼望。」（羅馬書 5:3-4）</strong>",
+                    "每一次的失敗，不是在說你不夠好；而是在提醒你，目前的方式或許需要調整，或者那並非最適合你的時機。",
+                    "那些等待與磨練的日子，正在塑造你的韌性。到了你真正的時刻，你會更清楚自己要什麼。繼續努力，繼續嘗試，轉機正在路上。"
+                ]
+            },
+            {
+                title: "致工作與生活失衡的你",
+                content: [
+                    "你的訊息從不間斷，你的腦袋從未真正休息。吃飯想工作，睡覺想工作，就連假日也難以放鬆。你知道這樣不對，但你不知道怎麼停下來。",
+                    "<strong class='text-[#8b5a2b]'>「六日要勞碌做你一切的工，但第七日是向耶和華你神當守的安息日。」（申命記 5:13-14）</strong>",
+                    "休息不是浪費時間，是生命的節奏。就像土地需要休耕才能肥沃，你的心靈也需要留白才能持續創造與前進。",
+                    "今天，允許自己放下焦慮一小時。看一看窗外的風景，好好吃一頓飯，做一件讓你純粹開心的事。你的最佳狀態，來自一個懂得調適的你。"
+                ]
+            },
+
+            // === 第二部分：健康、心靈與成長 (10則) ===
+            {
+                title: "致正在與身體不適共處的你",
+                content: [
+                    "身體的不適，是你沒有選擇的重擔。那些無眠的夜晚、難以言說的虛弱、還有內心深處的不安……你真的辛苦了。",
+                    "<strong class='text-[#8b5a2b]'>「他親身擔當了我們的軟弱，背負了我們的疾病。」（馬太福音 8:17）</strong>",
+                    "你的辛苦，沒有被忽視。有一位理解你軟弱的神，也知道你現在的每一分煎熬。你為健康所做的每一分努力，都是勇敢的表現。",
+                    "在康復的路上，你不是孤單的。讓這份愛托住你，讓周圍關心你的人陪伴你。症狀不能定義你的全部，你依然是一個尊貴且有質量的生命。"
+                ]
+            },
+            {
+                title: "致長年照顧他人而疲憊的你",
+                content: [
+                    "你是那個在別人最需要時出現的人。你照顧著家人，默默承受著所有人的需求與情緒，卻鮮少有人問你：你還好嗎？",
+                    "<strong class='text-[#8b5a2b]'>「那強壯的人應當擔代那軟弱人的擔子，不求自己的喜悅。」（羅馬書 15:1）</strong>",
+                    "你的付出是偉大的，但你也是一個需要被呵護的人。你不需要耗盡自己才算盡職，你的體力與心靈也需要補充能量。",
+                    "今天，讓別人也來分擔一點吧。接受幫助，不是軟弱，而是讓愛能夠流動。照顧好自己，你才有能量繼續守護你所愛的人。"
+                ]
+            },
+            {
+                title: "致需要暫停腳步休養的你",
+                content: [
+                    "你習慣了忙碌與被需要。如今因為身體訊號被迫停下來，你反而感到不知所措，甚至產生一種愧疚感。",
+                    "<strong class='text-[#8b5a2b]'>「他使我躺臥在青草地上，領我在可安歇的水邊。他使我的靈魂甦醒。」（詩篇 23:2-3）</strong>",
+                    "停下來，不是失敗，是生命在進行必要的修復。你的身體正在爭取你的關注，聽它說話，好好吃飯睡覺，讓自己真正放空。",
+                    "這段休養期，是重新認識自己的契機。那些平時被噪音掩蓋的心聲，會在這個安靜中浮現。放心休息，你會以更健康的姿態回來的。"
+                ]
+            },
+            {
+                title: "致為健康感到焦慮的你",
+                content: [
+                    "身體的一點異樣，讓你查詢了無數資料，越看越擔心。你開始對未來充滿恐懼，害怕無法掌控的意外會突然降臨。",
+                    "<strong class='text-[#8b5a2b]'>「不要為明天憂慮，因為明天自有明天的憂慮；一天的難處一天當就夠了。」（馬太福音 6:34）</strong>",
+                    "焦慮有時比症狀本身更消耗你的能量。你的擔心是出自對生命的珍視，但過度的恐懼常來自尚未發生的想象，而非現實。",
+                    "勇敢地面對檢查，聽取專業建議，然後學習把結果交給生命的主宰。專注於你能做的——規律生活、正向思考。你的內心比你想象的更強大。"
+                ]
+            },
+            {
+                title: "致心情低落、提不起勁的你",
+                content: [
+                    "有時候沒有特定的理由，只是突然覺得對生活提不起勁。你感到空洞、疲憊，好像世界與你之間隔了一道透明的牆。",
+                    "<strong class='text-[#8b5a2b]'>「耶和華是心碎者的近處，拯救靈裡痛悔的人。」（詩篇 34:18）</strong>",
+                    "有這樣的情緒，不代表你有問題。情緒也有四季，低潮期是生命呼吸的空隙，你不需要強迫自己立刻開朗起來。",
+                    "試著寫下你的感受，或找個懂你的人聊聊。允許自己脆弱，允許自己什麼都不想。當你不再與情緒對抗，光就會慢慢透進來。"
+                ]
+            },
+            {
+                title: "致正在經歷心靈黑夜的你",
+                content: [
+                    "那份沉重的壓抑感是真實的。不是因為你不夠樂觀，而是心靈的感冒需要時間與專業的照顧。旁人不懂你的辛苦，但我懂。",
+                    "<strong class='text-[#8b5a2b]'>「我的心哪，你為何憂悶？為何在我裡面煩躁？應當仰望神，因他笑臉幫助我，我還要稱讚他。」（詩篇 42:5）</strong>",
+                    "你正在走一段幽暗的山徑，但這條路不是沒有出口。請繼續接受支持，不管是專業治療還是朋友的傾聽。你的存在，本身就是價值。",
+                    "這片烏雲終會散去，它無法覆蓋你整個人生的天空。一步一腳印，我們慢慢走向有光的地方。"
+                ]
+            },
+            {
+                title: "致想要建立健康習慣的你",
+                content: [
+                    "你知道規律運動與飲食的重要性，但計劃總是在繁忙或誘惑中破功。你開始對自己的意志力感到失望，覺得改變好難。",
+                    "<strong class='text-[#8b5a2b]'>「你們立志行事都是神在你們心裡運行，為要成就他的美意。」（腓立比書 2:13）</strong>",
+                    "改變需要的是「憐憫」而非「嚴厲」。每一次的失敗，都是在累積對自己的了解。不需要追求一步到位，持續的微小嘗試才是關鍵。",
+                    "從今天一件小事開始：多喝一杯水，或提早十分鐘睡覺。當你學會愛惜自己的身體，改變就會變成一種自然而然的喜悅。"
+                ]
+            },
+            {
+                title: "致陪伴所愛之人度過難關的你",
+                content: [
+                    "看著身邊的人受苦，那份無力感與不捨，常讓你感到心碎。你想幫忙，卻不知道該說什麼，只能默默守候在側。",
+                    "<strong class='text-[#8b5a2b]'>「耶和華靠近傷心的人，拯救靈裡痛悔的人。」（詩篇 34:18）</strong>",
+                    "你的「在場」，就是最有力量的安慰。不需要完美的措辭，只需要你那份真誠的陪伴與支持。這份愛，能穿透最深沉的痛苦。",
+                    "別忘了，你也要照顧好自己的情緒。你的愛很珍貴，但也需要被呵護。在給予的同時，也允許自己被愛托住。"
+                ]
+            },
+            {
+                title: "致學習愛惜自己身體的你",
+                content: [
+                    "也許你長久以來都忽視了身體的警訊。直到疲累堆積成疾，你才意識到自己虧欠這副軀體太多。你開始學習傾聽內在的聲音。",
+                    "<strong class='text-[#8b5a2b]'>「你們的身子就是聖靈的殿……所以，要在你們的身子上榮耀神。」（哥林多前書 6:19-20）</strong>",
+                    "你的身體是一份珍貴的禮物，是你與世界對話的媒介。好好照顧它，不是自私，而是對生命最基本的尊重與感恩。",
+                    "從今天起，對自己多一份溫柔。給身體充足的休息、營養的食物。當你與身體和解，你會發現生命也會變得更加輕盈與充滿活力。"
+                ]
+            },
+            {
+                title: "致在長久療癒路上的你",
+                content: [
+                    "這是一場考驗耐心的長期抗戰。過程的起伏、對未來的猶疑、還有那些旁人無法體會的疲乏——你扛著的，遠比表面上看到的更多。",
+                    "<strong class='text-[#8b5a2b]'>「我將這些事告訴你們，是要叫你們在我裡面有平安。在世上你們有苦難；但你們可以放心，我已經勝了世界。」（約翰福音 16:33）</strong>",
+                    "你的堅持，本身就是一個動人的故事。勇敢不是沒有恐懼，而是即使帶著不安，依然選擇面對每一天的挑戰。",
+                    "這條路上，你不是獨行。醫療的進步、家人的陪伴，還有一份超越理解的平安會守護你。一天一天，你都在贏得屬於你的勝利。"
+                ]
+            },
+
+            // === 第三部分：家庭、關係與愛 (10則) ===
+            {
+                title: "致正在修補親密關係的你",
+                content: [
+                    "曾經親近的兩人，不知何時開始變得疏離。溝通變成了爭執，或者更令人難受的冷漠。你心疼這段關係，卻不知道該如何跨出那一步。",
+                    "<strong class='text-[#8b5a2b]'>「你們要彼此包容，彼此饒恕；主怎樣饒恕了你們，你們也要怎樣饒恕人。」（歌羅西書 3:13）</strong>",
+                    "長久的關係不是沒有衝突，而是在衝突後願意選擇連結。那些裂縫，是提醒我們需要注入更多的體諒與耐心。",
+                    "願意放下防備說出心裡話，就是修復的開始。不需要立刻回到當初的熱度，只要每天多一點點關心，愛就會慢慢找回它的位置。"
+                ]
+            },
+            {
+                title: "致在教養中感到挫折的你",
+                content: [
+                    "你付出了所有心血，卻覺得孩子離你越來越遠。不被理解的無奈與自責交織，讓你開始懷疑自己：我是一個好父母嗎？",
+                    "<strong class='text-[#8b5a2b]'>「教養孩童，使他走當行的道，就是到老他也不偏離。」（箴言 22:6）</strong>",
+                    "世界上沒有完美的父母，只有願意學習的父母。你的孩子需要的不是全能的導師，而是一個願意傾聽、願意理解他們的守護者。",
+                    "放下「必須掌控」的壓力，嘗試用孩子的視角看世界。愛是一場漫長的等待，你撒下的種子，會在適當的時機開花。你已經做得很好了。"
+                ]
+            },
+            {
+                title: "致獨自承擔家庭重擔的你",
+                content: [
+                    "你一個人在各個面向間拉扯，既要負責生計，又要打理瑣事。你幾乎沒有時間喊累，因為你知道自己是大家的依靠。",
+                    "<strong class='text-[#8b5a2b]'>「我的力量啊，我要歌頌你；因為神是我的高台，是賜恩給我的神。」（詩篇 59:17）</strong>",
+                    "你的堅韌與愛，是家庭最穩固的基石。在家人眼中，你的付出是無可取代的榜樣。但請記得，英雄也需要休息。",
+                    "偶爾示弱或尋求協助，並不會減損你的價值。讓周圍的資源與朋友成為你的後盾，你值得擁有一份支撐，讓這條路走得更長遠。"
+                ]
+            },
+            {
+                title: "致與原生家庭關係緊張的你",
+                content: [
+                    "過往的成長經歷或價值觀的分歧，讓你在面對父母時總感到沉重與拉扯。你渴望親近，卻又害怕受傷。",
+                    "<strong class='text-[#8b5a2b]'>「要孝敬父母，使你得福，在世長壽。」（以弗所書 6:2-3）</strong>",
+                    "與家人和解，不一定要勉強自己接受所有的傷害，而是學習在愛與自我邊界之間找到平衡。接受他們的有限，也是放過你自己。",
+                    "療癒是一段過程，不急著現在就有答案。保持適度的距離，帶著善意去溝通，即便只是一點點的理解，都能讓心中的冰雪開始融化。"
+                ]
+            },
+            {
+                title: "致正在照顧長輩的你",
+                content: [
+                    "角色轉換的過程總是令人感傷——你開始要照顧曾經照顧你的長輩。體力的負荷與心境的轉變，讓你常在深夜感到精疲力竭。",
+                    "<strong class='text-[#8b5a2b]'>「你們要孝敬父母，這是第一條帶應許的誡命。」（以弗所書 6:2）</strong>",
+                    "你所做的每一件日常瑣事，都是愛最深刻的實踐。即便他們有時會遺忘或無法表達，這份陪伴的價值是永恆的。",
+                    "這是一段關於生命、關於告別也關於珍惜的功課。在付出的同時，請記得給予自己溫柔。你的愛，是他們晚年最溫暖的光芒。"
+                ]
+            },
+            {
+                title: "致剛進入新階段的父母",
+                content: [
+                    "迎接新生命的喜悅後，隨之而來的是無盡的疲累與焦慮。你不確定自己是否做對了，每一個細節都讓你感到壓力倍增。",
+                    "<strong class='text-[#8b5a2b]'>「兒女是耶和華所賜的產業；所懷的胎，是他所給的賞賜。」（詩篇 127:3）</strong>",
+                    "這個階段的混亂是正常的，不必苛求自己立刻成為專家。生命會帶著你成長，你的直覺與愛，就是給孩子最好的禮物。",
+                    "學習接受不完美，學習給自己放假。帶著願意嘗試的心，與孩子一起探索這個世界。你已經是一個充滿愛的父母了。"
+                ]
+            },
+            {
+                title: "致經歷感情分合正在復原的你",
+                content: [
+                    "關係的結束並非你預期的結局。那份失落感與對未來的迷惘，讓你覺得心缺了一塊。你努力想要站起來，卻還是時常被悲傷襲擊。",
+                    "<strong class='text-[#8b5a2b]'>「耶和華靠近傷心的人，拯救靈裡痛悔的人。」（詩篇 34:18）</strong>",
+                    "一段關係的終結，不代表你人生的失敗。那是生命中的一個轉折，讓你重新審視內心，找回真正的自己。",
+                    "允許自己哀悼，不要急著好起來。在這份破碎之後，你會發現自己內在更強韌的力量。未來還有新的可能，正在安靜地等待你。"
+                ]
+            },
+            {
+                title: "致心中懷抱期待卻仍在等待的你",
+                content: [
+                    "你渴望某個願望的實現或家庭的圓滿，但時間一分一秒過去，回應卻遲遲未到。那份期待漸漸變成了一種隱隱的焦慮與疼痛。",
+                    "<strong class='text-[#8b5a2b]'>「耶和華說：我的意念非同你們的意念，我的道路非同你們的道路。」（以賽亞書 55:8）</strong>",
+                    "你的渴望是美好的，你的等待並非徒勞。有時候，生命是透過等待來拓寬我們心的容量，讓我們能承載未來的祝福。",
+                    "在等待的過程中，請好好活在當下。你現在的生命依然完整且富有意義。美好的事物常在不經意間降臨，請保持盼望。"
+                ]
+            },
+            {
+                title: "致為家人前途感到擔憂的你",
+                content: [
+                    "你看著摯愛的親人走在崎嶇的路上，恨不得替他們承擔。你擔心他們的選擇，卻又害怕過度的干預會破壞彼此的信任。",
+                    "<strong class='text-[#8b5a2b]'>「你要專心仰賴耶和華，不可倚靠自己的聰明，在你一切所行的事上都要認定他，他必指引你的路。」（箴言 3:5-6）</strong>",
+                    "我們無法代替別人過他們的人生，也無法預測所有的轉折。你能給予最好的支持，是堅定的愛與一個永遠為他們開啟的家門。",
+                    "信任他們內在的生命力，也信任命運的引導。在你放手的地方，愛會以另一種方式守護他們。讓愛成為引導而非束縛。"
+                ]
+            },
+            {
+                title: "致正致力於改善家庭氣氛的你",
+                content: [
+                    "你正在努力讓家庭變得更溫暖、更和諧。這不容易，因為要改變長久以來的互動模式需要極大的勇氣與堅持。",
+                    "<strong class='text-[#8b5a2b]'>「房子因智慧建造，又因聰明立穩；其中所有的房間，因知識充滿各樣美好寶貴的財物。」（箴言 24:3-4）</strong>",
+                    "改善關係不一定要有戲劇性的轉變，往往是從一個微小的善意開始。你所做的努力，家人都在感受。",
+                    "給彼此多一點時間和空間。家，是在無數個包容與體諒的瞬間中，慢慢建立起來的。你的堅持，就是家庭最珍貴的財富。"
+                ]
+            }
+        ];
+
+        /* =========================================
+           DOM 元素與全域變數
+           ========================================= */
+        const sceneIntro = document.getElementById('scene-intro');
+        const sceneCamera = document.getElementById('scene-camera');
+        const sceneSky = document.getElementById('scene-sky');
+        const sceneLetter = document.getElementById('scene-letter');
+        
+        const btnStart = document.getElementById('btn-start');
+        const video = document.getElementById('video-element');
+        const motionCanvas = document.getElementById('motion-canvas');
+        const ctxMotion = motionCanvas.getContext('2d', { willReadFrequently: true });
+        const progressFill = document.getElementById('progress-fill');
+        const instructionText = document.getElementById('instruction-text');
+        const clickHint = document.getElementById('click-hint');
+        const btnCloseLetter = document.getElementById('btn-close-letter');
+        const letterContainer = document.getElementById('letter-container');
+        const btnDownloadImg = document.getElementById('btn-download-img'); // 修改：下載圖片按鈕
+
+        let isDetectingMotion = false;
+        let previousImageData = null;
+        let waveProgress = 0;
+        const MAX_WAVE_PROGRESS = 100;
+        let lastProcessTime = 0;
+        let animationFrameId = null;
+        let starAnimationId = null;
+
+        const PROCESS_WIDTH = 64;
+        const PROCESS_HEIGHT = 48;
+        motionCanvas.width = PROCESS_WIDTH;
+        motionCanvas.height = PROCESS_HEIGHT;
+
+        // 星星陣列
+        let bgStars = [];
+        let interactiveStars = [];
+        let ripples = [];
+        const starColors = ['#ffffff', '#fff4e6', '#e6f0ff', '#ffe6e6'];
+
+        /* =========================================
+           1. 重置流程函數 (回到首頁)
+           ========================================= */
+        function resetToStart() {
+            // 停止所有動畫
+            isDetectingMotion = false;
+            cancelAnimationFrame(animationFrameId);
+            cancelAnimationFrame(starAnimationId);
+            
+            // 重置進度條與文字
+            waveProgress = 0;
+            progressFill.style.width = '0%';
+            progressFill.classList.remove('from-green-400');
+            progressFill.classList.add('from-blue-400');
+            instructionText.textContent = "請對著鏡頭持續揮手";
+            previousImageData = null;
+
+            // 確保關閉相機 (如果還開著)
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+
+            // 隱藏所有其他場景
+            sceneCamera.classList.remove('opacity-100');
+            sceneCamera.classList.add('opacity-0', 'pointer-events-none');
+            
+            sceneSky.classList.remove('opacity-100');
+            sceneSky.classList.add('opacity-0', 'pointer-events-none');
+            
+            sceneLetter.classList.remove('opacity-100', 'pointer-events-auto');
+            sceneLetter.classList.add('opacity-0', 'pointer-events-none');
+            
+            // 顯示首頁
+            sceneIntro.classList.remove('opacity-0', 'pointer-events-none');
+            sceneIntro.classList.add('opacity-100', 'pointer-events-auto');
+            
+            btnStart.disabled = false;
+            btnStart.textContent = "準備好了";
+            clickHint.classList.remove('opacity-100');
+            clickHint.classList.add('opacity-0');
+        }
+
+        /* =========================================
+           2. 啟動相機與動態偵測
+           ========================================= */
+        btnStart.addEventListener('click', async () => {
+            btnStart.disabled = true;
+            btnStart.textContent = "開啟相機中...";
+            document.getElementById('error-msg').classList.add('hidden');
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+                    audio: false 
+                });
+                
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play();
+                    
+                    // 淡出首頁
+                    sceneIntro.classList.remove('opacity-100', 'pointer-events-auto');
+                    sceneIntro.classList.add('opacity-0', 'pointer-events-none');
+                    
+                    // 顯示相機並開始偵測
+                    setTimeout(() => {
+                        sceneCamera.classList.remove('opacity-0', 'pointer-events-none');
+                        sceneCamera.classList.add('opacity-100');
+                        setTimeout(() => {
+                            isDetectingMotion = true;
+                            startMotionDetection();
+                        }, 1500);
+                    }, 1000);
+                };
+            } catch (err) {
+                document.getElementById('error-msg').classList.remove('hidden');
+                btnStart.disabled = false;
+                btnStart.textContent = "準備好了";
+            }
+        });
+
+        function startMotionDetection() {
+            if (!isDetectingMotion) return;
+
+            const currentTime = performance.now();
+            if (currentTime - lastProcessTime > 100) {
+                ctxMotion.drawImage(video, 0, 0, PROCESS_WIDTH, PROCESS_HEIGHT);
+                const currentImageData = ctxMotion.getImageData(0, 0, PROCESS_WIDTH, PROCESS_HEIGHT);
+                
+                if (previousImageData) {
+                    let changedPixels = 0;
+                    for (let i = 0; i < currentImageData.data.length; i += 4) {
+                        const rDiff = Math.abs(currentImageData.data[i] - previousImageData.data[i]);
+                        const gDiff = Math.abs(currentImageData.data[i+1] - previousImageData.data[i+1]);
+                        const bDiff = Math.abs(currentImageData.data[i+2] - previousImageData.data[i+2]);
+                        if (rDiff + gDiff + bDiff > 40) changedPixels++;
+                    }
+
+                    const changeRatio = changedPixels / (PROCESS_WIDTH * PROCESS_HEIGHT);
+                    if (changeRatio > 0.03) {
+                        waveProgress += 1.0; // 調整為 1.0，以 10fps 計算大約需要連續揮動 10 秒
+                    } else {
+                        waveProgress -= 0.5; // 配合調整倒退速度，避免太難達成
+                    }
+
+                    waveProgress = Math.max(0, Math.min(MAX_WAVE_PROGRESS, waveProgress));
+                    progressFill.style.width = `${waveProgress}%`;
+
+                    // 文字修改：將能量改為信心
+                    if (waveProgress > 80) {
+                        instructionText.textContent = "快完成了，繼續保持！";
+                        progressFill.classList.replace('from-blue-400', 'from-green-400');
+                    } else if (waveProgress > 40) {
+                        instructionText.textContent = "很好，我感受到你的信心了...";
+                    } else {
+                        instructionText.textContent = "請對著鏡頭持續揮手";
+                        progressFill.classList.replace('from-green-400', 'from-blue-400');
+                    }
+
+                    if (waveProgress >= MAX_WAVE_PROGRESS) {
+                        triggerStarrySky();
+                        return;
+                    }
+                }
+                previousImageData = currentImageData;
+                lastProcessTime = currentTime;
+            }
+            animationFrameId = requestAnimationFrame(startMotionDetection);
+        }
+
+        /* =========================================
+           3. 互動星空 Canvas 邏輯
+           ========================================= */
+        const starCanvas = document.getElementById('star-canvas');
+        const ctxStar = starCanvas.getContext('2d');
+
+        function triggerStarrySky() {
+            isDetectingMotion = false;
+            cancelAnimationFrame(animationFrameId);
+            instructionText.textContent = "恩典降臨...";
+            
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+            }
+
+            initStars();
+
+            setTimeout(() => {
+                sceneCamera.classList.remove('opacity-100');
+                sceneCamera.classList.add('opacity-0', 'pointer-events-none');
+                
+                sceneSky.classList.remove('opacity-0', 'pointer-events-none');
+                sceneSky.classList.add('opacity-100');
+                
+                setTimeout(() => {
+                    clickHint.classList.remove('opacity-0');
+                    clickHint.classList.add('opacity-100');
+                }, 2000);
+            }, 1000);
+        }
+
+        function initStars() {
+            starCanvas.width = window.innerWidth;
+            starCanvas.height = window.innerHeight;
+            bgStars = [];
+            interactiveStars = [];
+            
+            const numBgStars = Math.floor((window.innerWidth * window.innerHeight) / 1500);
+            for (let i = 0; i < numBgStars; i++) {
+                bgStars.push({
+                    x: Math.random() * starCanvas.width,
+                    y: Math.random() * starCanvas.height,
+                    radius: Math.random() * 1.2 + 0.2,
+                    alpha: Math.random(),
+                    speed: Math.random() * 0.015 + 0.005,
+                    isFadingOut: Math.random() > 0.5
+                });
+            }
+
+            const numInteractiveStars = 35;
+            for (let i = 0; i < numInteractiveStars; i++) {
+                interactiveStars.push({
+                    x: Math.random() * (starCanvas.width - 100) + 50,
+                    y: Math.random() * (starCanvas.height - 100) + 50,
+                    radius: Math.random() * 2 + 2,
+                    baseRadius: Math.random() * 2 + 2,
+                    alpha: Math.random() * 0.5 + 0.5,
+                    speed: Math.random() * 0.02 + 0.01,
+                    pulsePhase: Math.random() * Math.PI * 2,
+                    color: starColors[Math.floor(Math.random() * starColors.length)]
+                });
+            }
+
+            // 確保清除之前的動畫迴圈
+            if (starAnimationId) cancelAnimationFrame(starAnimationId);
+            animateStars();
+        }
+
+        function animateStars() {
+            ctxStar.fillStyle = 'rgba(10, 5, 25, 0.3)';
+            ctxStar.fillRect(0, 0, starCanvas.width, starCanvas.height);
+            
+            bgStars.forEach(star => {
+                ctxStar.beginPath();
+                ctxStar.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+                ctxStar.fillStyle = `rgba(255, 255, 255, ${star.alpha})`;
+                ctxStar.fill();
+
+                if (star.isFadingOut) {
+                    star.alpha -= star.speed;
+                    if (star.alpha <= 0.1) star.isFadingOut = false;
+                } else {
+                    star.alpha += star.speed;
+                    if (star.alpha >= 0.8) star.isFadingOut = true;
+                }
+            });
+
+            const time = Date.now() * 0.002;
+            interactiveStars.forEach(star => {
+                const currentRadius = star.baseRadius + Math.sin(time + star.pulsePhase) * 1.5;
+                
+                ctxStar.beginPath();
+                ctxStar.arc(star.x, star.y, currentRadius, 0, Math.PI * 2);
+                ctxStar.fillStyle = star.color;
+                
+                ctxStar.shadowBlur = 15;
+                ctxStar.shadowColor = star.color;
+                ctxStar.globalAlpha = star.alpha;
+                ctxStar.fill();
+                
+                ctxStar.shadowBlur = 0;
+                ctxStar.globalAlpha = 1.0;
+            });
+
+            for (let i = ripples.length - 1; i >= 0; i--) {
+                let r = ripples[i];
+                ctxStar.beginPath();
+                ctxStar.arc(r.x, r.y, r.radius, 0, Math.PI * 2);
+                ctxStar.strokeStyle = `rgba(255, 255, 255, ${r.alpha})`;
+                ctxStar.lineWidth = 2;
+                ctxStar.stroke();
+                
+                r.radius += 2;
+                r.alpha -= 0.03;
+                
+                if (r.alpha <= 0) {
+                    ripples.splice(i, 1);
+                }
+            }
+
+            starAnimationId = requestAnimationFrame(animateStars);
+        }
+
+        window.addEventListener('resize', () => {
+            if (sceneSky.classList.contains('opacity-100')) {
+                starCanvas.width = window.innerWidth;
+                starCanvas.height = window.innerHeight;
+                initStars(); 
+            }
+        });
+
+        /* =========================================
+           4. 星星互動與信件開啟
+           ========================================= */
+        
+        starCanvas.addEventListener('mousemove', (e) => {
+            const rect = starCanvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            let isHovering = false;
+            for (let star of interactiveStars) {
+                const dist = Math.hypot(star.x - mouseX, star.y - mouseY);
+                if (dist < 25) {
+                    isHovering = true;
+                    break;
+                }
+            }
+            starCanvas.style.cursor = isHovering ? 'pointer' : 'default';
+        });
+
+        function handleCanvasClick(clientX, clientY) {
+            const rect = starCanvas.getBoundingClientRect();
+            const mouseX = clientX - rect.left;
+            const mouseY = clientY - rect.top;
+
+            let clickedStar = null;
+            let closestDist = 35;
+
+            for (let star of interactiveStars) {
+                const dist = Math.hypot(star.x - mouseX, star.y - mouseY);
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    clickedStar = star;
+                }
+            }
+
+            if (clickedStar) {
+                ripples.push({ x: clickedStar.x, y: clickedStar.y, radius: clickedStar.baseRadius, alpha: 1 });
+                openRandomLetter();
+            }
+        }
+
+        starCanvas.addEventListener('click', (e) => handleCanvasClick(e.clientX, e.clientY));
+        starCanvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if(e.touches.length > 0) {
+                handleCanvasClick(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        }, { passive: false });
+
+        function openRandomLetter() {
+            clickHint.classList.remove('opacity-100');
+            clickHint.classList.add('opacity-0');
+
+            const randomIndex = Math.floor(Math.random() * letterTemplates.length);
+            const selectedLetter = letterTemplates[randomIndex];
+
+            document.getElementById('letter-title').textContent = selectedLetter.title;
+            const contentHtml = selectedLetter.content.map(text => `<p>${text}</p>`).join('');
+            document.getElementById('letter-content').innerHTML = contentHtml;
+
+            sceneLetter.classList.remove('opacity-0', 'pointer-events-none');
+            sceneLetter.classList.add('opacity-100', 'pointer-events-auto');
+            
+            setTimeout(() => {
+                letterContainer.classList.remove('scale-95');
+                letterContainer.classList.add('scale-100');
+            }, 50);
+        }
+
+        /* =========================================
+           5. 關閉信件並回到首頁 (Loop)
+           ========================================= */
+        btnCloseLetter.addEventListener('click', () => {
+            // 縮小信件
+            letterContainer.classList.remove('scale-100');
+            letterContainer.classList.add('scale-95');
+            
+            // 淡出信件背景
+            sceneLetter.classList.remove('opacity-100', 'pointer-events-auto');
+            sceneLetter.classList.add('opacity-0', 'pointer-events-none');
+            
+            // 延遲 800 毫秒後（等待信件淡出動畫），重新載入首頁狀態
+            setTimeout(() => {
+                resetToStart();
+            }, 800);
+        });
+
+        /* =========================================
+           6. 下載圖片功能 (優化防崩潰版)
+           ========================================= */
+        btnDownloadImg.addEventListener('click', async () => {
+            const originalHTML = btnDownloadImg.innerHTML;
+            btnDownloadImg.innerHTML = '⏳ 處理中...';
+            btnDownloadImg.disabled = true;
+
+            const closeBtn = document.getElementById('btn-close-letter');
+            const actionContainer = btnDownloadImg.parentElement;
+
+            // 1. 隱藏不想要被截圖進去的按鈕
+            closeBtn.style.display = 'none';
+            actionContainer.style.display = 'none';
+
+            // 2. 暫時解除高度限制，確保完整截圖
+            const originalMaxHeight = letterContainer.style.maxHeight;
+            const originalOverflow = letterContainer.style.overflow;
+            
+            // 備份可能導致崩潰的 CSS 屬性
+            const originalBgImage = letterContainer.style.backgroundImage;
+            const originalBoxShadow = letterContainer.style.boxShadow;
+            
+            letterContainer.style.maxHeight = 'none';
+            letterContainer.style.overflow = 'visible';
+            
+            // 重要修復 A：修正手機版捲軸位置導致截圖偏移或出現空白的問題
+            letterContainer.scrollTop = 0;
+            window.scrollTo(0, 0);
+
+            // 重要修復 B：由於手機硬體限制，複雜的 SVG filter 或許會導致顯卡記憶體溢出
+            // 我們在截圖時強制移除背景特效，改用單純的底色來確保穩定產出圖片
+            letterContainer.style.backgroundImage = 'none';
+            letterContainer.style.boxShadow = 'none';
+
+            try {
+                // 給予充足的時間讓瀏覽器重新排版 (Reflow)
+                await new Promise(resolve => setTimeout(resolve, 400));
+
+                // 判斷是否為手機尺寸，如果是則降低縮放比例
+                const isMobile = window.innerWidth < 768;
+                const renderScale = isMobile ? 1.2 : 2; 
+
+                // 3. 使用 html2canvas 產生圖片
+                const canvas = await html2canvas(letterContainer, {
+                    scale: renderScale,
+                    backgroundColor: '#fdfaf0',
+                    useCORS: true,
+                    logging: false,
+                    windowWidth: document.documentElement.offsetWidth,
+                    windowHeight: document.documentElement.offsetHeight
+                });
+
+                // 4. 恢復原本的樣式
+                letterContainer.style.maxHeight = originalMaxHeight;
+                letterContainer.style.overflow = originalOverflow;
+                letterContainer.style.backgroundImage = originalBgImage;
+                letterContainer.style.boxShadow = originalBoxShadow;
+                closeBtn.style.display = '';
+                actionContainer.style.display = 'flex';
+
+                // 5. 轉換為 Blob 並觸發下載
+                canvas.toBlob((blob) => {
+                    if (!blob) throw new Error('圖片產生失敗');
+                    
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = '來自星空的信.png';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    
+                    btnDownloadImg.innerHTML = '✅ 下載成功';
+                    
+                    setTimeout(() => {
+                        btnDownloadImg.innerHTML = originalHTML;
+                        btnDownloadImg.disabled = false;
+                    }, 3000);
+                }, 'image/png');
+
+            } catch (error) {
+                console.error('截圖失敗:', error);
+                
+                // 發生錯誤時恢復 UI
+                letterContainer.style.maxHeight = originalMaxHeight;
+                letterContainer.style.overflow = originalOverflow;
+                letterContainer.style.backgroundImage = originalBgImage;
+                letterContainer.style.boxShadow = originalBoxShadow;
+                closeBtn.style.display = '';
+                actionContainer.style.display = 'flex';
+                
+                btnDownloadImg.innerHTML = '❌ 產生失敗';
+                setTimeout(() => {
+                    btnDownloadImg.innerHTML = originalHTML;
+                    btnDownloadImg.disabled = false;
+                }, 3000);
+            }
+        });
+
+    </script>
+</body>
+</html>
