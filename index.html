@@ -4,55 +4,49 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>神奇樂園旅程</title>
-    <!-- 引入 Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 引入 Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- 引入 Canvas Confetti 用於慶祝特效 -->
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
-    
+
     <style>
-        /* 古典字體設定 */
         @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600;900&display=swap');
-        
+
+        * { box-sizing: border-box; }
+
         body {
             font-family: 'Noto Serif TC', serif;
-            background-color: #110e0c; /* 深色桌面背景 */
+            background-color: #110e0c;
             margin: 0;
             padding: 0;
-            overflow: hidden; /* 隱藏整個畫面的捲動，改由內部容器捲動 */
-            touch-action: none; /* 防止手機瀏覽器原生的下拉更新 */
+            overflow: hidden;
+            touch-action: none;
         }
 
-        /* 視窗控制：允許地圖可以平移捲動 */
+        /* 視窗：Flexbox 置中，不需捲動 */
         #map-viewport {
             width: 100vw;
             height: 100vh;
-            overflow: auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
             position: relative;
-            cursor: grab; /* 提示使用者可以拖曳/捲動 */
-            -webkit-overflow-scrolling: touch; /* 讓 iOS 擁有順暢的慣性滑動 */
-        }
-        #map-viewport:active {
-            cursor: grabbing;
         }
 
-        /* 古典地圖主體 */
+        /* 地圖主體：固定 1000×1000，透過 JS scale 縮放 */
         #map-canvas {
-            /* 地圖固定大小，確保不會擠壓變形 */
-            width: 1400px; 
-            height: 900px;
+            width: 1000px;
+            height: 1000px;
             position: relative;
-            margin: 40px auto; /* 讓地圖在桌面版置中 */
-            
-            /* 羊皮地圖材質與漸層改為讀取本機圖片 */
-            background-color: #e3d1b1; 
+            flex-shrink: 0;
+            transform-origin: center center;
+
+            background-color: #e3d1b1;
             background-image: url('doc/index.png');
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
-            
-            /* 古典邊框 */
+
             border: 12px solid #4a2e15;
             outline: 3px solid #8b5a2b;
             outline-offset: -20px;
@@ -60,57 +54,32 @@
             border-radius: 4px;
         }
 
-        /* 航海線 (SVG 畫布) */
+        /* 航海線 SVG */
         #route-svg {
             position: absolute;
             top: 0; left: 0;
             width: 100%; height: 100%;
-            pointer-events: none; /* 點擊穿透 */
+            pointer-events: none;
             z-index: 10;
         }
-
-        /* 航海虛線樣式 */
         .route-path {
             fill: none;
             stroke: #6b3e2b;
-            stroke-width: 2; 
-            stroke-dasharray: 6 6; 
+            stroke-width: 2;
+            stroke-dasharray: 6 6;
             opacity: 0.8;
         }
 
-        /* 地圖標題框 (Cartouche) */
-        .cartouche {
-            position: absolute;
-            top: 40px;
-            left: 50px;
-            padding: 20px 40px;
-            background: rgba(235, 219, 192, 0.85);
-            border: 2px solid #5c3a21;
-            outline: 1px solid #5c3a21;
-            outline-offset: 4px;
-            box-shadow: 4px 4px 10px rgba(0,0,0,0.1);
-            z-index: 20;
-        }
-        .cartouche h1 {
-            color: #3b1d0c;
-            font-size: 2.5rem;
-            letter-spacing: 0.15em;
-            text-shadow: 1px 1px 0px rgba(255,255,255,0.5);
-        }
-
-        /* 地圖節點容器 (定位用) */
+        /* 地圖節點 */
         .map-node {
             position: absolute;
             z-index: 30;
-            transform: translate(-50%, -50%); /* 以座標為中心點 */
-            -webkit-tap-highlight-color: transparent; /* 移除手機點擊閃爍 */
+            transform: translate(-50%, -50%);
+            -webkit-tap-highlight-color: transparent;
         }
+        .map-node:hover { z-index: 50; }
 
-        .map-node:hover {
-            z-index: 50;
-        }
-
-        /* 節點標記 (仿封蠟或地圖釘) */
+        /* 節點標記 */
         .node-marker {
             width: 50px;
             height: 50px;
@@ -125,14 +94,13 @@
             transition: all 0.3s ease;
             cursor: pointer;
         }
-
         .map-node:hover:not(.node-disabled) .node-marker {
             transform: scale(1.15) translateY(-5px);
             box-shadow: 5px 8px 12px rgba(0,0,0,0.4);
             background: radial-gradient(circle at 30% 30%, #c44d37, #7a2617);
         }
 
-        /* 地圖節點的常駐短標題 */
+        /* 節點標籤 */
         .node-label {
             position: absolute;
             top: 60px;
@@ -153,24 +121,19 @@
             z-index: 35;
             transition: all 0.3s ease;
         }
-
         .map-node:hover:not(.node-disabled) .node-label {
             color: #a63d2b;
             transform: translateX(-50%) translateY(-5px);
         }
 
-        /* 鎖定/未解鎖狀態 */
-        .node-disabled {
-            cursor: pointer; /* 在手機上設為 pointer 允許點擊看說明 */
-        }
-        
+        /* 鎖定狀態 */
+        .node-disabled { cursor: pointer; }
         .node-disabled .node-marker {
             background: radial-gradient(circle at 30% 30%, #6d645d, #332d29);
             border-color: #a69c91;
             color: #9c9287;
             box-shadow: 2px 2px 4px rgba(0,0,0,0.3), inset -1px -1px 3px rgba(0,0,0,0.5);
         }
-
         .node-disabled .node-label {
             color: #5c554f;
             text-shadow:
@@ -180,10 +143,10 @@
                  1px  1px 0 rgba(227, 209, 177, 0.6);
         }
 
-        /* 標記旁的文字批註卡片 (電腦版懸停) */
+        /* 電腦版 Hover 資訊卡片 */
         .node-info {
             position: absolute;
-            width: 260px;
+            width: 240px;
             background: rgba(244, 232, 209, 0.95);
             border: 1px solid #bda886;
             padding: 15px;
@@ -192,17 +155,11 @@
             transition: all 0.3s ease;
             opacity: 0;
             visibility: hidden;
-            pointer-events: none; /* 避免干擾點擊 */
+            pointer-events: none;
         }
-        
-        /* 只有在非觸控裝置 (電腦) 上才啟用 Hover 顯示 */
         @media (hover: hover) and (pointer: fine) {
-            .map-node:hover .node-info {
-                opacity: 1;
-                visibility: visible;
-            }
+            .map-node:hover .node-info { opacity: 1; visibility: visible; }
         }
-
         .node-info::before {
             content: '';
             position: absolute;
@@ -211,28 +168,26 @@
             border-top: 1px solid #bda886;
             border-left: 1px solid #bda886;
         }
-
-        /* 根據 align 設定文字卡片的位置 */
-        .align-right .node-info { left: 70px; top: 50%; transform: translateY(-50%); }
+        .align-right .node-info  { left: 65px; top: 50%; transform: translateY(-50%); }
         .align-right .node-info::before { left: -6px; top: 50%; transform: translateY(-50%) rotate(-45deg); }
-        .align-left .node-info { right: 70px; top: 50%; transform: translateY(-50%); }
-        .align-left .node-info::before { right: -6px; top: 50%; transform: translateY(-50%) rotate(135deg); }
-        .align-bottom .node-info { top: 90px; left: 50%; transform: translateX(-50%); }
+        .align-left .node-info   { right: 65px; top: 50%; transform: translateY(-50%); }
+        .align-left .node-info::before  { right: -6px; top: 50%; transform: translateY(-50%) rotate(135deg); }
+        .align-bottom .node-info { top: 80px; left: 50%; transform: translateX(-50%); }
         .align-bottom .node-info::before { top: -6px; left: 50%; transform: translateX(-50%) rotate(45deg); }
-        .align-top .node-info { bottom: 70px; left: 50%; transform: translateX(-50%); }
-        .align-top .node-info::before { bottom: -6px; left: 50%; transform: translateX(-50%) rotate(225deg); }
+        .align-top .node-info    { bottom: 65px; left: 50%; transform: translateX(-50%); }
+        .align-top .node-info::before   { bottom: -6px; left: 50%; transform: translateX(-50%) rotate(225deg); }
 
         /* 神祕節點特效 */
         .mystery-node .node-marker {
-            background: radial-gradient(circle at 30% 30%, #d4af37, #8a6c1c); 
+            background: radial-gradient(circle at 30% 30%, #d4af37, #8a6c1c);
             animation: glow-pulse 2s infinite alternate;
         }
         @keyframes glow-pulse {
             from { box-shadow: 0 0 10px rgba(212, 175, 55, 0.4); }
-            to { box-shadow: 0 0 30px rgba(212, 175, 55, 0.8); }
+            to   { box-shadow: 0 0 30px rgba(212, 175, 55, 0.8); }
         }
 
-        /* --- 彈出視窗系列 (共用背景) --- */
+        /* 共用遮罩 */
         .overlay-backdrop {
             position: fixed;
             top: 0; left: 0; width: 100vw; height: 100vh;
@@ -243,67 +198,40 @@
             visibility: hidden;
             transition: all 0.3s ease;
         }
-        .overlay-backdrop.active {
-            opacity: 1; visibility: visible;
-        }
+        .overlay-backdrop.active { opacity: 1; visibility: visible; }
 
-        /* 最終邀請函 (置中) */
+        /* 最終邀請函 */
         .invitation-card {
             background: #f4e8d1;
-            background-image: 
-                radial-gradient(circle at 100% 100%, rgba(139, 69, 19, 0.05) 0%, transparent 50%),
-                radial-gradient(circle at 0% 0%, rgba(139, 69, 19, 0.05) 0%, transparent 50%);
             border: 2px solid #8b5a2b;
             box-shadow: 0 20px 50px rgba(0,0,0,0.5), inset 0 0 30px rgba(139, 69, 19, 0.1);
             border-radius: 8px;
             padding: 40px;
             max-width: 500px;
             width: 90%;
-            position: fixed; /* 修改為 fixed 確保不受視窗滾動影響 */
+            position: fixed;
             top: 50%; left: 50%;
-            z-index: 105; /* 確保 z-index 高於黑底遮罩 */
+            z-index: 105;
             transform: translate(-50%, -40%) scale(0.95);
             transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             text-align: center;
             opacity: 0;
             visibility: hidden;
-            
-            /* 新增：避免內容過長導致上下截斷，加入最大高度與內部捲軸 */
             max-height: 85vh;
             overflow-y: auto;
-            overscroll-behavior: contain; /* 避免滑到底部時牽動背景地圖 */
+            overscroll-behavior: contain;
         }
         .invitation-card.active {
             transform: translate(-50%, -50%) scale(1);
             opacity: 1; visibility: visible;
         }
-
-        /* 新增：美化邀請函本身的捲軸 (使其符合古典風格) */
         .invitation-card::-webkit-scrollbar { width: 6px; }
         .invitation-card::-webkit-scrollbar-track { background: transparent; }
         .invitation-card::-webkit-scrollbar-thumb { background: #d1c0a5; border-radius: 3px; }
 
-        /* --- 手機版專屬設定 --- */
-        @media (max-width: 768px) {
-            .cartouche {
-                top: 20px; left: 20px;
-                padding: 15px 20px;
-                transform: scale(0.85);
-                transform-origin: top left;
-            }
-            /* 強制隱藏電腦版的懸停卡片，避免手機點擊時閃爍或超出邊界 */
-            .node-info { display: none !important; }
-            
-            /* 新增：手機版邀請函縮小邊距，增加可視空間 */
-            .invitation-card {
-                padding: 30px 20px;
-                max-height: 90vh;
-            }
-        }
-
-        /* 手機底部抽屜卡片 (Bottom Sheet) */
+        /* 手機版底部抽屜 */
         .mobile-bottom-sheet {
-            position: fixed; /* 修改為 fixed */
+            position: fixed;
             bottom: -100%;
             left: 0;
             width: 100%;
@@ -317,12 +245,9 @@
             z-index: 101;
             text-align: center;
         }
-        .mobile-bottom-sheet.active {
-            bottom: 0;
-        }
+        .mobile-bottom-sheet.active { bottom: 0; }
         .sheet-drag-handle {
-            width: 50px;
-            height: 5px;
+            width: 50px; height: 5px;
             background: #bda886;
             border-radius: 3px;
             margin: 0 auto 20px auto;
@@ -335,10 +260,16 @@
         }
         .close-btn {
             position: absolute;
-            top: 15px; right: 15px; color: #8b5a2b; cursor: pointer; transition: color 0.2s;
+            top: 15px; right: 15px;
+            color: #8b5a2b; cursor: pointer; transition: color 0.2s;
         }
 
-        /* 隱藏捲軸列 */
+        /* 手機版隱藏 hover 卡片 */
+        @media (max-width: 768px) {
+            .node-info { display: none !important; }
+            .invitation-card { padding: 30px 20px; max-height: 90vh; }
+        }
+
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #110e0c; }
         ::-webkit-scrollbar-thumb { background: #4a2e15; border-radius: 4px; }
@@ -346,17 +277,11 @@
 </head>
 <body>
 
-    <!-- 視窗容器 -->
     <div id="map-viewport">
-        <!-- 地圖畫布主體 -->
         <div id="map-canvas">
-            
-            <!-- SVG 航海路線 -->
             <svg id="route-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
                 <path id="journey-path" class="route-path" d=""></path>
             </svg>
-
-            <!-- 節點注入區 -->
             <div id="nodes-container"></div>
         </div>
     </div>
@@ -364,39 +289,34 @@
     <!-- 共用黑底遮罩 -->
     <div id="overlay" class="overlay-backdrop" onclick="closeAllPopups()"></div>
 
-    <!-- 手機版專用：底部抽屜卡片 -->
+    <!-- 手機版底部抽屜 -->
     <div id="mobile-sheet" class="mobile-bottom-sheet">
         <div class="sheet-drag-handle"></div>
         <div id="sheet-date" class="text-sm font-bold text-[#b33922] mb-1 tracking-wider uppercase"></div>
         <h3 id="sheet-title" class="text-2xl font-black text-[#3e2723] mb-3 leading-tight"></h3>
         <p id="sheet-desc" class="text-md text-[#5c3a21] leading-relaxed font-medium mb-6"></p>
-        <div id="sheet-action-container">
-            <!-- 按鈕將透過 JS 動態產生 -->
-        </div>
+        <div id="sheet-action-container"></div>
     </div>
 
-    <!-- 終極邀請函 (置中 Pop-up) -->
+    <!-- 最終邀請函 -->
     <div id="invitation-card" class="invitation-card">
         <i data-lucide="x" class="close-btn w-6 h-6" onclick="closeAllPopups()"></i>
-        
+
         <div class="flex justify-center mb-4 text-[#8b5a2b]">
             <i data-lucide="ticket-star" class="w-12 h-12"></i>
         </div>
-        
         <h2 class="text-3xl font-black text-[#3b1d0c] mb-2 tracking-widest">iMiracle 神奇樂園</h2>
         <p class="text-lg text-[#8b5a2b] font-bold tracking-widest mb-4">THE WONDERLAND</p>
-        
+
         <div class="divider"></div>
-        
+
         <p class="text-[#5c3a21] leading-relaxed font-medium mb-6 text-justify">
             親愛的旅人，你在這幅地圖上的線上探索即將告一段落，但神為你預備的真實旅程才剛要開始。<br><br>
             從星空的應許到向主敞開心門，你已經見證了恩典的軌跡。現在，我們誠摯地邀請你跨越螢幕的界線，來到充滿驚喜與神同在的「iMiracle 神奇樂園」。<br><br>
             在這裡，沒有虛擬的隔閡，只有真實的敬拜、溫暖的擁抱，以及一群渴望與你一起經歷神蹟的家人。帶上你的期盼，勇敢踏出這未知卻充滿榮耀的下一步吧！
         </p>
-        
+
         <div class="bg-[#ebdfc8] border border-[#d1c0a5] rounded-md p-4 sm:p-5 mb-6 text-left">
-            
-            <!-- 聚會時間 (雙行排版) -->
             <div class="flex items-start mb-4">
                 <i data-lucide="calendar" class="w-5 h-5 text-[#8b5a2b] mr-3 mt-0.5 flex-shrink-0"></i>
                 <div class="w-full">
@@ -413,95 +333,88 @@
                     </div>
                 </div>
             </div>
-            
-            <!-- 聚會地點 -->
             <div class="flex items-start mb-2 mt-4">
                 <i data-lucide="map-pin" class="w-5 h-5 text-[#8b5a2b] mr-3 flex-shrink-0 mt-0.5"></i>
                 <div>
                     <span class="font-bold text-[#3b1d0c]">聚會地點：IM 行動教會</span>
                 </div>
             </div>
-            
             <div class="flex items-center text-sm text-[#5c3a21] pl-8 mt-4 pt-3 border-t border-[#d1c0a5]">
                 <span>邀請您親臨現場，體驗更深刻的信仰連結。</span>
             </div>
         </div>
-        
+
         <button onclick="acceptInvitation()" class="bg-[#8b5a2b] hover:bg-[#6b421e] text-[#f4e8d1] font-bold py-3 px-8 rounded shadow-lg transition duration-300 tracking-wider">
             我願意接受邀請
         </button>
     </div>
 
-    <!-- 互動邏輯與資料設定 -->
     <script>
+        // ── 關卡資料（x, y 為百分比，對應 1000×1000 畫布）──
         const journeyData = [
             {
                 id: 1, date: "起初的愛", title: "仰望星空：天父的信", shortTitle: "1.星空應許",
                 desc: "在時間的起點，神就寫下了關於你的故事。向星空揮手，點擊繁星，看見天父的應許。",
-                link: "1.star.html", icon: "sparkles", x: 4, y: 45, align: "right",
+                link: "1.star.html", icon: "sparkles",
+                x: 22, y: 52, align: "right",
                 isMystery: false, isDisabled: false, unlockDate: "2026/04/19"
             },
             {
                 id: 2, date: "出埃及記 17 章", title: "曠野爭戰：耶和華尼西", shortTitle: "2.曠野爭戰",
                 desc: "通往應許之地的路上充滿挑戰。像摩西一樣舉起雙手，經歷神成為你得勝的旌旗。",
-                link: "2.war.html", icon: "sword", x: 40, y: 68, align: "right",
+                link: "2.war.html", icon: "sword",
+                x: 35, y: 67, align: "right",
                 isMystery: true, isDisabled: true, unlockDate: "2026/04/26"
             },
             {
                 id: 3, date: "馬太福音 14 章", title: "信心跨越：水上行走", shortTitle: "3.水上行走",
                 desc: "風浪之中，耶穌呼喚你前行。單單定睛於主，不看環境的狂風巨浪，踏上信心之旅。",
-                link: "3.peter.html", icon: "eye", x: 75, y: 75, align: "left",
+                link: "3.peter.html", icon: "eye",
+                x: 79, y: 78, align: "left",
                 isMystery: true, isDisabled: true, unlockDate: "2026/05/03"
             },
             {
                 id: 4, date: "啟示錄 3:20", title: "恩典叩門：打開心門", shortTitle: "4.恩典叩門",
                 desc: "救贖的終點是關係的恢復。聽見祂的聲音，敞開心門，迎接永恆的光芒湧入生命。",
-                link: "4.open.html", icon: "door-open", x: 77, y: 33, align: "left",
+                link: "4.open.html", icon: "door-open",
+                x: 78, y: 57, align: "left",
                 isMystery: true, isDisabled: true, unlockDate: "2026/05/10"
             },
             {
                 id: 5, date: "幸福的起點", title: "新的旅程", shortTitle: "5.新的旅程",
                 desc: "神為愛祂的人所預備的，是眼睛未曾看見的。領受了恩典之後，你的下一步將通往何處？",
                 link: "#", icon: "ticket", mysteryIcon: "help-circle",
-                x: 50, y: 50, align: "bottom",
+                x: 50, y: 47, align: "bottom",
                 isMystery: true, isDisabled: true, unlockDate: "2026/05/17",
-                isPopupTrigger: true 
+                isPopupTrigger: true
             }
         ];
 
-        // --- 節點渲染邏輯 ---
+        // ── 節點渲染 ──
         const nodesContainer = document.getElementById('nodes-container');
-        const pathElement = document.getElementById('journey-path');
-        let svgPathData = "";
-        const currentTime = new Date();
+        const pathElement    = document.getElementById('journey-path');
+        let svgPathData      = "";
+        const currentTime    = new Date();
 
         journeyData.forEach((item, index) => {
             let lockedMsg = "尚未解鎖";
-            
-            // 判斷解鎖時間
+
             if (item.unlockDate) {
                 const unlockTime = new Date(item.unlockDate);
                 if (currentTime >= unlockTime) {
-                    item.isDisabled = false; 
+                    item.isDisabled = false;
                     if (item.isMystery !== undefined) item.isMystery = false;
                 } else {
-                    item.isDisabled = true; 
-                    lockedMsg = `將於 ${item.unlockDate} 解鎖`; 
+                    item.isDisabled = true;
+                    lockedMsg = `將於 ${item.unlockDate} 解鎖`;
                 }
             }
-
-            // 保存最終計算出的鎖定訊息，以便手機版呼叫
             item._lockedMsg = lockedMsg;
 
-            const mysteryClass = item.isMystery ? 'mystery-node' : '';
-            const disabledClass = item.isDisabled ? 'node-disabled' : '';
-            const displayIcon = (item.isMystery && item.mysteryIcon) ? item.mysteryIcon : item.icon;
-            
-            // 【重要】所有節點點擊事件，皆交由 JS 統一處理，以便攔截手機版動作
-            const targetLink = `href="javascript:void(0)"`; 
-            const clickEvent = `onclick="handleNodeClick(event, ${item.id})"`;
+            const mysteryClass  = item.isMystery  ? 'mystery-node'  : '';
+            const disabledClass = item.isDisabled  ? 'node-disabled' : '';
+            const displayIcon   = (item.isMystery && item.mysteryIcon) ? item.mysteryIcon : item.icon;
 
-            // 電腦版 Hover 卡片的按鈕文字
             let actionBtnHTML = '';
             if (item.isDisabled) {
                 actionBtnHTML = `<div class="mt-3 text-xs font-bold text-[#6d645d] flex items-center"><i data-lucide="lock" class="w-3 h-3 mr-1"></i> ${lockedMsg}</div>`;
@@ -513,29 +426,27 @@
 
             let contentHTML = '';
             if (item.isMystery && item.isDisabled) {
-                 contentHTML = `
+                contentHTML = `
                     <h3 class="text-xl font-black text-[#6d645d] mb-2 leading-tight">未知領域</h3>
                     <p class="text-sm text-[#5c3a21] leading-relaxed font-medium">前方的旅途尚被迷霧籠罩，請靜候神的時間到來。</p>
-                    ${actionBtnHTML}
-                `;
+                    ${actionBtnHTML}`;
             } else {
-                 contentHTML = `
+                contentHTML = `
                     <div class="text-xs font-bold text-[#b33922] mb-1 tracking-wider">${item.date}</div>
                     <h3 class="text-xl font-black text-[#3e2723] mb-2 leading-tight">${item.title}</h3>
                     <p class="text-sm text-[#5c3a21] leading-relaxed font-medium">${item.desc}</p>
-                    ${actionBtnHTML}
-                `;
+                    ${actionBtnHTML}`;
             }
 
-            const nodeHTML = `
-                <a ${targetLink} ${clickEvent} class="map-node align-${item.align} ${mysteryClass} ${disabledClass} group" style="left: ${item.x}%; top: ${item.y}%; text-decoration: none;">
+            nodesContainer.insertAdjacentHTML('beforeend', `
+                <a href="javascript:void(0)" onclick="handleNodeClick(event, ${item.id})"
+                   class="map-node align-${item.align} ${mysteryClass} ${disabledClass} group"
+                   style="left: ${item.x}%; top: ${item.y}%; text-decoration: none;">
                     <div class="node-marker"><i data-lucide="${displayIcon}" class="w-6 h-6"></i></div>
                     <div class="node-label">${item.isMystery ? '???' : item.shortTitle}</div>
-                    <!-- 電腦版的 Hover 卡片 -->
                     <div class="node-info z-40">${contentHTML}</div>
                 </a>
-            `;
-            nodesContainer.insertAdjacentHTML('beforeend', nodeHTML);
+            `);
 
             // 計算路線
             if (index === 0) {
@@ -552,76 +463,76 @@
         pathElement.setAttribute('d', svgPathData);
         lucide.createIcons();
 
-        // --- RWD 與點擊控制邏輯 ---
+        // ── CSS Scale 自適應（核心 RWD 邏輯）──
+        function resizeMap() {
+            const canvas = document.getElementById('map-canvas');
+            const scale  = Math.min(window.innerWidth / 1000, window.innerHeight / 1000);
+            canvas.style.transform = `scale(${scale})`;
+        }
+        window.addEventListener('resize', resizeMap);
+        window.addEventListener('load', resizeMap);
+        resizeMap();
+
+        // ── 點擊邏輯 ──
         function handleNodeClick(event, id) {
-            event.preventDefault(); // 阻止原本的 A 標籤預設跳轉
+            event.preventDefault();
             const item = journeyData.find(d => d.id === id);
-            
-            // 判斷是否為手機尺寸 (768px 以下)
+
             if (window.innerWidth <= 768) {
                 openMobileSheet(item);
             } else {
-                // 電腦版行為
-                if (item.isDisabled) return; // 鎖定狀態不反應
-                
-                if (item.isPopupTrigger) {
-                    openInvitation();
-                } else {
-                    window.location.href = item.link; // 一般跳轉
-                }
+                if (item.isDisabled) return;
+                if (item.isPopupTrigger) { openInvitation(); }
+                else { window.location.href = item.link; }
             }
         }
 
-        // --- 手機底部抽屜 (Bottom Sheet) 邏輯 ---
+        // ── 手機底部抽屜 ──
         function openMobileSheet(item) {
-            const sheet = document.getElementById('mobile-sheet');
-            const overlay = document.getElementById('overlay');
+            const sheet           = document.getElementById('mobile-sheet');
+            const overlay         = document.getElementById('overlay');
             const actionContainer = document.getElementById('sheet-action-container');
-            
-            // 填入資料
+
             if (item.isMystery && item.isDisabled) {
-                document.getElementById('sheet-date').innerText = '未知領域';
+                document.getElementById('sheet-date').innerText  = '未知領域';
                 document.getElementById('sheet-title').innerText = '尚未解鎖的區域';
-                document.getElementById('sheet-desc').innerText = '前方的旅途尚被迷霧籠罩，請靜候神的時間到來。';
+                document.getElementById('sheet-desc').innerText  = '前方的旅途尚被迷霧籠罩，請靜候神的時間到來。';
             } else {
-                document.getElementById('sheet-date').innerText = item.date;
+                document.getElementById('sheet-date').innerText  = item.date;
                 document.getElementById('sheet-title').innerText = item.title;
-                document.getElementById('sheet-desc').innerText = item.desc;
+                document.getElementById('sheet-desc').innerText  = item.desc;
             }
 
-            // 產生底部操作按鈕
             if (item.isDisabled) {
                 actionContainer.innerHTML = `
                     <button disabled class="w-full bg-[#c4b7a6] text-[#6d645d] font-bold py-3 px-8 rounded cursor-not-allowed tracking-wider flex justify-center items-center">
                         <i data-lucide="lock" class="w-5 h-5 mr-2"></i> ${item._lockedMsg}
-                    </button>
-                `;
+                    </button>`;
             } else if (item.isPopupTrigger) {
                 actionContainer.innerHTML = `
-                    <button onclick="closeAllPopups(); setTimeout(openInvitation, 300);" class="w-full bg-[#8b5a2b] hover:bg-[#6b421e] text-[#f4e8d1] font-bold py-3 px-8 rounded shadow-md transition duration-300 tracking-wider flex justify-center items-center">
+                    <button onclick="closeAllPopups(); setTimeout(openInvitation, 300);"
+                            class="w-full bg-[#8b5a2b] hover:bg-[#6b421e] text-[#f4e8d1] font-bold py-3 px-8 rounded shadow-md transition duration-300 tracking-wider flex justify-center items-center">
                         <i data-lucide="mail-open" class="w-5 h-5 mr-2"></i> 點擊揭曉邀請函
-                    </button>
-                `;
+                    </button>`;
             } else {
                 actionContainer.innerHTML = `
-                    <button onclick="window.location.href='${item.link}'" class="w-full bg-[#8b5a2b] hover:bg-[#6b421e] text-[#f4e8d1] font-bold py-3 px-8 rounded shadow-md transition duration-300 tracking-wider flex justify-center items-center">
+                    <button onclick="window.location.href='${item.link}'"
+                            class="w-full bg-[#8b5a2b] hover:bg-[#6b421e] text-[#f4e8d1] font-bold py-3 px-8 rounded shadow-md transition duration-300 tracking-wider flex justify-center items-center">
                         啟程探索 <i data-lucide="arrow-right" class="w-5 h-5 ml-2"></i>
-                    </button>
-                `;
+                    </button>`;
             }
-            
-            lucide.createIcons(); // 重新渲染新按鈕的 Icon
+
+            lucide.createIcons();
             overlay.classList.add('active');
             sheet.classList.add('active');
         }
 
-        // --- 最終邀請函 (置中 Pop-up) 邏輯 ---
+        // ── 邀請函 ──
         function openInvitation() {
             document.getElementById('overlay').classList.add('active');
             document.getElementById('invitation-card').classList.add('active');
         }
 
-        // 關閉所有視窗 (遮罩、底部抽屜、邀請函)
         function closeAllPopups() {
             document.getElementById('overlay').classList.remove('active');
             document.getElementById('mobile-sheet').classList.remove('active');
@@ -637,33 +548,6 @@
                 });
             }, 300);
         }
-
-        // --- 🖱️ 電腦版滑鼠拖曳平移地圖 ---
-        const viewport = document.getElementById('map-viewport');
-        let isDown = false, startX, startY, scrollLeft, scrollTop;
-
-        viewport.addEventListener('mousedown', (e) => {
-            isDown = true;
-            startX = e.pageX - viewport.offsetLeft;
-            startY = e.pageY - viewport.offsetTop;
-            scrollLeft = viewport.scrollLeft;
-            scrollTop = viewport.scrollTop;
-        });
-        viewport.addEventListener('mouseleave', () => { isDown = false; });
-        viewport.addEventListener('mouseup', () => { isDown = false; });
-        viewport.addEventListener('mousemove', (e) => {
-            if (!isDown) return;
-            e.preventDefault();
-            const x = e.pageX - viewport.offsetLeft;
-            const y = e.pageY - viewport.offsetTop;
-            viewport.scrollLeft = scrollLeft - (x - startX) * 1.5; 
-            viewport.scrollTop = scrollTop - (y - startY) * 1.5;
-        });
-
-        // 進入網頁時，自動將畫面置中到地圖中間偏下
-        window.onload = () => {
-            viewport.scrollLeft = (document.getElementById('map-canvas').offsetWidth - window.innerWidth) / 2;
-        };
     </script>
 </body>
 </html>
